@@ -331,6 +331,12 @@ function findCover(folderId) {
 
 const thumb = (p, size) => p?.thumbnailLink?.replace(/=s\d+$/, `=s${size}`);
 
+// La clé d'API de l'invité est limitée au site : ses requêtes doivent dire d'où elles viennent.
+function withReferrer(img, url) {
+  if (url.startsWith(API)) img.referrerPolicy = "strict-origin-when-cross-origin";
+  return url;
+}
+
 // Avec repli : les liens thumbnailLink expirent au bout de quelques heures (cache),
 // on passe alors par l'URL de miniature Drive, puis par l'original.
 function setThumb(img, p, size) {
@@ -338,7 +344,7 @@ function setThumb(img, p, size) {
   let k = 0;
   img.referrerPolicy = "no-referrer";
   img.onload = () => img.classList.add("ld");
-  img.onerror = () => { if (++k < sources.length) img.src = sources[k]; };
+  img.onerror = () => { if (++k < sources.length) img.src = withReferrer(img, sources[k]); };
   img.src = sources[0];
 }
 
@@ -691,7 +697,7 @@ function loadBig(p) {
       let k = 0;
       im.referrerPolicy = "no-referrer";
       im.onload = () => resolve(im.src);
-      im.onerror = () => (++k < urls.length ? (im.src = urls[k]) : resolve(null));
+      im.onerror = () => (++k < urls.length ? (im.src = withReferrer(im, urls[k])) : resolve(null));
       im.src = urls[0];
     }));
   }
