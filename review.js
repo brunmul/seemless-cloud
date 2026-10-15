@@ -215,7 +215,9 @@ function drawReview(id, entry) {
     owner && !owner.me ? `partagé par ${owner.displayName}` : ""].filter(Boolean).join(" · ");
   const actions = [];
   if (isGuest() && !state.history.length) actions.push({ label: "Quitter", onClick: leaveGuest });
-  else if (!isGuest() && id === review.root) actions.push({ label: "Inviter…", onClick: () => openInvite({ id, name: meta.name }) });
+  else if (!isGuest() && id === review.root) actions.push(
+    { label: "Activité", onClick: () => go({ name: "share-activity", id }) },
+    { label: "Inviter…", onClick: () => openInvite({ id, name: meta.name }) });
   setHeader(meta.name, sub, { zoom: true, actions });
 
   const c = $("#content");
@@ -244,6 +246,13 @@ function drawReview(id, entry) {
   grid.appendChild(frag);
   visible.forEach((f) => refreshTile(f.id));
   drawFilters(items);
+  // Arrivée depuis l'activité : on ouvre directement le fichier commenté.
+  const open = state.view.open;
+  if (open) {
+    delete state.view.open;
+    const i = visible.findIndex((f) => f.id === open);
+    if (i >= 0) { review.list = visible; openViewer(i, grid.children[i].querySelector("img")); }
+  }
 }
 
 function duration(f) {
@@ -254,6 +263,7 @@ function duration(f) {
 function passesFilter(id) {
   if (!review.filter) return true;
   const tags = tagsOf(id);
+  if (review.filter === "notes") return notesOf(id).length > 0;
   return review.filter === "none" ? !tags.length : tags.some((x) => x.tag.key === review.filter);
 }
 
@@ -261,14 +271,16 @@ function drawFilters(items) {
   const box = $("#rv-filters");
   if (!box) return;
   const counts = new Map();
-  let none = 0;
+  let none = 0, noted = 0;
   for (const f of items) {
+    if (notesOf(f.id).length) noted++;
     const keys = new Set(tagsOf(f.id).map((x) => x.tag.key));
     if (!keys.size) none++;
     keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
   }
   const chip = (key, html) => `<button class="rv-chip ${review.filter === key ? "on" : ""}" data-key="${key ?? ""}">${html}</button>`;
-  box.innerHTML = !counts.size && !review.filter ? "" : chip(null, "Tout") +
+  box.innerHTML = !counts.size && !noted && !review.filter ? "" : chip(null, "Tout") +
+    (noted ? chip("notes", `💬 Commentées · ${noted}`) : "") +
     TAGS.filter((t) => counts.has(t.key) || review.filter === t.key)
       .map((t) => chip(t.key, `<i style="background:${t.color}"></i>${counts.get(t.key) || 0}`)).join("") +
     chip("none", `Sans pastille · ${none}`);

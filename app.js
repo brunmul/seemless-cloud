@@ -190,6 +190,8 @@ async function onSignedIn() {
   const hasCache = cached?.key === sourcesKey();
   if (hasCache) { state.lib = cached; buildLibrary(); }
   else render();
+  // Pastille « nouveaux commentaires » de la rubrique Partages, sans bloquer.
+  if (boxUrl()) setTimeout(() => loadShares().catch(() => {}), 2500);
   await refreshLibrary(hasCache);
 }
 
@@ -404,7 +406,8 @@ function setHeader(title, subtitle = "", opts = {}) {
 function render() {
   const v = state.view;
   const views = {
-    library: renderLibrary, albums: renderAlbums, album: renderAlbum, shared: renderShared,
+    library: renderLibrary, albums: renderAlbums, album: renderAlbum, shared: renderShares,
+    shares: renderShares, "share-activity": renderShareActivity,
     "music-albums": renderMusicAlbums, "music-album": renderMusicAlbum, songs: renderSongs, drive: renderDrive, sources: renderSources,
     books: renderBooks, "books-authors": renderAuthors, "books-author": renderAuthor,
     review: renderReview,
@@ -521,15 +524,6 @@ function renderAlbums() {
   const c = $("#content");
   gridObserver?.disconnect();
   c.innerHTML = albums.length ? albumCards(albums) : empty("Aucun album. Chaque dossier Drive qui contient des photos devient un album.");
-  bindAlbumCards(c, albums, (a) => go({ name: "album", id: a.id }));
-}
-
-function renderShared() {
-  const albums = state.photoAlbums.filter((a) => state.folders.get(a.id)?.shared && matches(a.name));
-  setHeader("Partagés", "Albums partagés par lien", { zoom: true });
-  const c = $("#content");
-  gridObserver?.disconnect();
-  c.innerHTML = albums.length ? albumCards(albums) : empty("Aucun album partagé. Ouvre un album et clique sur « Partager ».");
   bindAlbumCards(c, albums, (a) => go({ name: "album", id: a.id }));
 }
 

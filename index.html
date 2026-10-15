@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1e1e1e">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=15">
   <script src="config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -30,7 +30,10 @@
         <div class="side-title">Photos</div>
         <button class="side-item active" data-view="library"><span class="ico">🖼️</span>Photothèque</button>
         <button class="side-item" data-view="albums"><span class="ico">📚</span>Albums</button>
-        <button class="side-item" data-view="shared"><span class="ico">🔗</span>Partagés</button>
+
+        <div class="side-title">Partages</div>
+        <button class="side-item" data-view="shares"><span class="ico">🔗</span>Dossiers partagés<span id="shares-count" class="side-count" hidden></span></button>
+        <button class="side-item" data-view="share-activity"><span class="ico">💬</span>Activité</button>
 
         <div class="side-title">Musique</div>
         <button class="side-item" data-view="music-albums"><span class="ico">💿</span>Albums</button>
@@ -96,7 +99,7 @@
   <!-- Choix d'un album de destination -->
   <div id="picker" class="modal" hidden>
     <div class="modal-box">
-      <h3>Déplacer vers…</h3>
+      <h3 id="picker-title">Déplacer vers…</h3>
       <div id="picker-path" class="muted"></div>
       <div id="picker-list" class="picker-list"></div>
       <div class="modal-actions">
@@ -229,10 +232,11 @@
     <audio id="audio" controls preload="none"></audio>
   </footer>
 
-  <script src="app.js?v=14"></script>
-  <script src="folders.js?v=14"></script>
-  <script src="sources.js?v=14"></script>
-  <script src="books.js?v=14"></script>
-  <script src="review.js?v=14"></script>
+  <script src="app.js?v=15"></script>
+  <script src="folders.js?v=15"></script>
+  <script src="sources.js?v=15"></script>
+  <script src="books.js?v=15"></script>
+  <script src="review.js?v=15"></script>
+  <script src="shares.js?v=15"></script>
 </body>
 </html>

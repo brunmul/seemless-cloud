@@ -141,12 +141,28 @@ async function createAlbum(parentId) {
 // ---------- Déplacer des photos ----------
 
 let pickerAt = null;
+let pickerOpts = null; // null : déplacer la sélection ; sinon { title, confirm, onPick }
 
 function openMovePicker() {
   if (!state.selected.size) return;
+  openFolderPicker(null);
+}
+
+// Choisir un dossier dans ses sources (déplacer des photos, partager un dossier…).
+function openFolderPicker(opts) {
+  pickerOpts = opts;
   pickerAt = null;
+  $("#picker-title").textContent = opts?.title || "Déplacer vers…";
+  $("#picker-new").hidden = !!opts;
   $("#picker").hidden = false;
   renderPicker();
+}
+
+function pickerConfirm() {
+  if (!pickerOpts) return confirmMove();
+  const f = state.folders.get(pickerAt) || { id: pickerAt, name: settings.sources.find((s) => s.id === pickerAt)?.name || "Dossier" };
+  $("#picker").hidden = true;
+  pickerOpts.onPick(f);
 }
 
 function renderPicker() {
@@ -173,7 +189,7 @@ function renderPicker() {
     list.appendChild(b);
   }
   if (!subs.length) list.insertAdjacentHTML("beforeend", `<p class="muted" style="padding:8px">Aucun sous-dossier.</p>`);
-  $("#picker-confirm").textContent = `Déplacer ici (${state.selected.size})`;
+  $("#picker-confirm").textContent = pickerOpts ? pickerOpts.confirm : `Déplacer ici (${state.selected.size})`;
   $("#picker-confirm").disabled = !pickerAt;
   $("#picker-new").disabled = !pickerAt;
 }
@@ -280,7 +296,7 @@ window.addEventListener("load", () => {
   $("#btn-cancel-select").onclick = () => setSelecting(false);
   $("#picker-cancel").onclick = () => ($("#picker").hidden = true);
   $("#picker-new").onclick = pickerNewFolder;
-  $("#picker-confirm").onclick = confirmMove;
+  $("#picker-confirm").onclick = pickerConfirm;
   $("#share-close").onclick = () => ($("#share").hidden = true);
   $("#btn-settings").onclick = openSettings;
   $("#settings-close").onclick = () => ($("#settings").hidden = true);
