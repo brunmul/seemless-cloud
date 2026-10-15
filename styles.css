@@ -416,3 +416,5 @@ html.guest .sidebar, html.guest #btn-select { display: none; }
 .act-quote { color: var(--text); }
 .act-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; vertical-align: -1px; }
 @media (max-width: 700px) { .sh-grid { grid-template-columns: 1fr; } }
+
+.sh-card.pending .sh-cover { background: var(--hover); animation: skel 1.2s ease-in-out infinite alternate; }

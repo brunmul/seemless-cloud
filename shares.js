@@ -20,32 +20,55 @@ async function loadShares(fresh) {
     // Les sous-dossiers d'un dossier partagé le sont aussi : on ne garde que le haut.
     const ids = new Set(all.map((f) => f.id));
     const folders = all.filter((f) => !(f.parents || []).some((p) => ids.has(p)));
-    const list = folders.map((folder) => ({ folder, items: [], subs: [], comments: [], error: null }));
-    await pool(list, 4, async (s) => {
-      try {
-        const kids = await listAll(`'${s.folder.id}' in parents and trashed = false and (mimeType = '${FOLDER_MIME}' or mimeType contains 'image/' or mimeType contains 'video/')`,
-          "id, name, mimeType, thumbnailLink, createdTime", null, "createdTime desc");
-        s.subs = kids.filter((f) => f.mimeType === FOLDER_MIME);
-        s.items = kids.filter((f) => f.mimeType !== FOLDER_MIME);
-        // Pas de photo à la racine : la couverture vient des sous-dossiers.
-        if (!s.items.length && s.subs.length) {
-          const inSubs = s.subs.slice(0, 10).map((f) => `'${f.id}' in parents`).join(" or ");
-          s.cover = (await api("/files", { q: `(${inSubs}) and ${MEDIA_Q}`, pageSize: 4, orderBy: "createdTime desc",
-            fields: "files(id, mimeType, thumbnailLink, createdTime)" })).files;
-        }
-      } catch (e) { console.error(e); }
-      if (!boxUrl()) return;
-      try {
-        const key = await ownerKey(s.folder.id);
-        s.comments = (await box("list", { folder: s.folder.id, key })).comments;
-      } catch (e) { s.error = e.message; }
-    });
+    const old = new Map((shares.list || []).map((s) => [s.folder.id, s]));
+    const list = folders.map((folder) => old.has(folder.id) ? { ...old.get(folder.id), folder }
+      : { folder, items: [], subs: [], comments: [], error: null, loaded: false });
     shares.list = list;
     shares.at = Date.now();
-    updateSharesBadge();
+    shares.filling = fillShares(list);
     return list;
   })();
   try { return await shares.loading; } finally { shares.loading = null; }
+}
+
+// Contenu et réactions de chaque dossier, plusieurs à la fois ; chaque carte
+// se met à jour dès que son dossier est prêt.
+async function fillShares(list) {
+  await pool(list, 6, async (s) => {
+    if (!s.loaded) await fillShare(s);
+    s.loaded = true;
+    shareReady(s);
+  });
+}
+
+async function fillShare(s) {
+  try {
+    const kids = await listAll(`'${s.folder.id}' in parents and trashed = false and (mimeType = '${FOLDER_MIME}' or mimeType contains 'image/' or mimeType contains 'video/')`,
+      "id, name, mimeType, thumbnailLink, createdTime", null, "createdTime desc");
+    s.subs = kids.filter((f) => f.mimeType === FOLDER_MIME);
+    s.items = kids.filter((f) => f.mimeType !== FOLDER_MIME);
+    // Pas de photo à la racine : la couverture vient des sous-dossiers.
+    if (!s.items.length && s.subs.length) {
+      const inSubs = s.subs.slice(0, 10).map((f) => `'${f.id}' in parents`).join(" or ");
+      s.cover = (await api("/files", { q: `(${inSubs}) and ${MEDIA_Q}`, pageSize: 4, orderBy: "createdTime desc",
+        fields: "files(id, mimeType, thumbnailLink, createdTime)" })).files;
+    }
+  } catch (e) { console.error(e); }
+  if (!boxUrl()) return;
+  try {
+    const key = await ownerKey(s.folder.id);
+    s.comments = (await box("list", { folder: s.folder.id, key })).comments;
+  } catch (e) { s.error = e.message; }
+}
+
+function shareReady(s) {
+  updateSharesBadge();
+  if (state.view.name !== "shares") return;
+  const card = document.querySelector(`.sh-card[data-id="${s.folder.id}"]`);
+  if (!card) return;
+  card.insertAdjacentHTML("afterend", shareCard(s));
+  card.remove();
+  bindCard(document.querySelector(`.sh-card[data-id="${s.folder.id}"]`));
 }
 
 // ---------- Statistiques d'un dossier ----------
@@ -130,20 +153,22 @@ function drawShares() {
     return;
   }
   c.innerHTML = `<div class="sh-grid">${list.map(shareCard).join("")}</div>`;
-  c.querySelectorAll(".sh-card").forEach((card) => {
-    const s = shares.list.find((x) => x.folder.id === card.dataset.id);
-    card.querySelectorAll("img[data-thumb]").forEach((img) => {
-      const f = coverOf(s).find((x) => x.id === img.dataset.thumb);
-      if (f) setThumb(img, f, 400);
-    });
-    card.querySelector(".sh-open").onclick = () => openShare(s);
-    card.querySelector("[data-act=copy]").onclick = () => copyShareLink(s.folder);
-    card.querySelector("[data-act=activity]").onclick = () => go({ name: "share-activity", id: s.folder.id });
-    card.querySelector("[data-act=stop]").onclick = () => stopShare(s);
-  });
+  c.querySelectorAll(".sh-card").forEach(bindCard);
 }
 
 const coverOf = (s) => (s.items.length ? s.items : s.cover || []).slice(0, 4);
+
+function bindCard(card) {
+  const s = shares.list.find((x) => x.folder.id === card.dataset.id);
+  card.querySelectorAll("img[data-thumb]").forEach((img) => {
+    const f = coverOf(s).find((x) => x.id === img.dataset.thumb);
+    if (f) setThumb(img, f, 400);
+  });
+  card.querySelector(".sh-open").onclick = () => openShare(s);
+  card.querySelector("[data-act=copy]").onclick = () => copyShareLink(s.folder);
+  card.querySelector("[data-act=activity]").onclick = () => go({ name: "share-activity", id: s.folder.id });
+  card.querySelector("[data-act=stop]").onclick = () => stopShare(s);
+}
 
 function shareCard(s) {
   const { tags, notes, people } = shareStats(s);
@@ -151,16 +176,16 @@ function shareCard(s) {
   const photos = s.items.filter((f) => !f.mimeType.startsWith("video/")).length, videos = s.items.length - photos;
   const cover = coverOf(s);
   const last = lastActivity(s);
-  return `<div class="sh-card" data-id="${s.folder.id}">
+  return `<div class="sh-card ${s.loaded ? "" : "pending"}" data-id="${s.folder.id}">
     <button class="sh-open">
       <div class="sh-cover n${cover.length}">${cover.map((f) => `<img data-thumb="${f.id}" alt="" loading="lazy">`).join("") || "<span>📁</span>"}
         ${fresh ? `<span class="sh-new">${fresh} nouveau${fresh > 1 ? "x" : ""}</span>` : ""}</div>
       <div class="sh-body">
         <b>${esc(s.folder.name)}</b>
         <span class="muted">${[photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
-          s.subs.length && plural(s.subs.length, "sous-dossier", "sous-dossiers")].filter(Boolean).join(" · ") || "Vide"}</span>
+          s.subs.length && plural(s.subs.length, "sous-dossier", "sous-dossiers")].filter(Boolean).join(" · ") || (s.loaded ? "Vide" : "&nbsp;")}</span>
         <span class="sh-stats">${TAGS.filter((t) => tags.has(t.key)).map((t) => `<span><i style="background:${t.color}"></i>${tags.get(t.key)}</span>`).join("")}
-          ${notes ? `<span>💬 ${notes}</span>` : ""}${!tags.size && !notes ? `<span class="muted">${s.error ? `<span title="${esc(s.error)}">Commentaires indisponibles</span>` : "Pas encore de réaction"}</span>` : ""}</span>
+          ${notes ? `<span>💬 ${notes}</span>` : ""}${!s.loaded ? `<span class="muted">Chargement…</span>` : !tags.size && !notes ? `<span class="muted">${s.error ? `<span title="${esc(s.error)}">Commentaires indisponibles</span>` : "Pas encore de réaction"}</span>` : ""}</span>
         <span class="sh-foot">${avatars(people)}<span class="muted">${last ? ago(last) : ""}</span></span>
       </div>
     </button>
@@ -269,7 +294,7 @@ async function renderShareActivity({ id }) {
   gridObserver?.disconnect();
   setHeader("Activité", "Chargement…");
   if (!shares.list) c.innerHTML = `<div class="empty">Chargement de l'activité…</div>`;
-  try { await loadShares(); }
+  try { await loadShares(); await shares.filling; }
   catch (e) { console.error(e); c.innerHTML = empty("Impossible de lire l'activité : " + esc(e.message)); return; }
   if (state.view.name !== "share-activity") return;
   const scope = id ? shares.list.filter((s) => s.folder.id === id) : shares.list;

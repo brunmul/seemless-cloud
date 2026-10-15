@@ -116,14 +116,18 @@ async function box(action, data = {}, retried) {
 // Clé d'un dossier pour le propriétaire : le script vérifie son jeton Google.
 // Une demande à la fois : le script crée son secret lors de la toute première.
 let keyQueue = Promise.resolve();
+let keyReady = false;
 function ownerKey(folder, fresh) {
   delete settings.reviewKeys; // anciennes clés, parfois fausses
   settings.boxKeys ||= {};
+  keyReady ||= Object.keys(settings.boxKeys).length > 0;
   if (settings.boxKeys[folder] && !fresh) return Promise.resolve(settings.boxKeys[folder]);
-  const p = keyQueue.then(async () => {
+  // Le secret existe dès qu'une clé a été obtenue : plus besoin de file d'attente.
+  const p = (keyReady ? Promise.resolve() : keyQueue).then(async () => {
     if (settings.boxKeys[folder] && !fresh) return settings.boxKeys[folder];
     const { key } = await box("key", { folder, token: state.token });
     settings.boxKeys[folder] = key;
+    keyReady = true;
     saveSettings();
     return key;
   });
