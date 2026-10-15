@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1e1e1e">
-  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles.css?v=13">
   <script src="config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -19,7 +19,6 @@
       <img class="welcome-icon" src="icon.svg" alt="">
       <h1>Seemless cloud</h1>
       <p class="for-owner">Tes photos, ta musique et tes livres, depuis ton Google Drive.</p>
-      <p class="for-guest">Un dossier a été partagé avec toi. Connecte-toi avec le compte Google qui a reçu l'invitation.</p>
       <button id="signin" class="btn-primary">Se connecter avec Google</button>
     </div>
   </section>
@@ -169,13 +168,21 @@
   <div id="invite" class="modal" hidden>
     <div class="modal-box">
       <h3 id="invite-title"></h3>
-      <p class="muted">La personne pourra voir les photos et les vidéos, commenter et poser des pastilles de couleur. Elle ne pourra rien modifier ni supprimer.</p>
-      <div class="invite-row"><input id="invite-email" type="email" placeholder="adresse@gmail.com"><button id="invite-send" class="btn-primary">Inviter</button></div>
-      <div id="invite-link-row" class="invite-row"><input id="invite-link" readonly><button id="invite-copy">Copier le lien</button></div>
+      <p class="muted">Avec le lien, on pourra voir les photos et les vidéos, commenter et poser des pastilles de couleur, sans compte Google. Rien ne pourra être modifié ni supprimé.</p>
+      <div id="invite-link-row" class="invite-row" hidden><input id="invite-link" readonly><button id="invite-copy">Copier le lien</button></div>
       <p id="invite-note" class="muted"></p>
-      <div id="invite-people" class="invite-people"></div>
-      <div class="modal-actions"><span class="spacer"></span><button id="invite-close">Fermer</button></div>
+      <div class="modal-actions"><button id="invite-stop" hidden>Désactiver le lien</button><span class="spacer"></span><button id="invite-close">Fermer</button><button id="invite-send" class="btn-primary" hidden>Créer le lien</button></div>
     </div>
+  </div>
+
+  <!-- Prénom de l'invité, demandé à son premier commentaire -->
+  <div id="name-ask" class="modal" hidden>
+    <form id="name-form" class="modal-box">
+      <h3>Comment tu t'appelles ?</h3>
+      <p class="muted">Ton prénom apparaîtra à côté de tes commentaires et de tes pastilles.</p>
+      <div class="invite-row"><input id="name-input" autocomplete="given-name" placeholder="Prénom"></div>
+      <div class="modal-actions"><span class="spacer"></span><button type="button" id="name-cancel">Annuler</button><button class="btn-primary">Continuer</button></div>
+    </form>
   </div>
 
   <!-- Liseuse -->
@@ -222,10 +229,10 @@
     <audio id="audio" controls preload="none"></audio>
   </footer>
 
-  <script src="app.js?v=12"></script>
-  <script src="folders.js?v=12"></script>
-  <script src="sources.js?v=12"></script>
-  <script src="books.js?v=12"></script>
-  <script src="review.js?v=12"></script>
+  <script src="app.js?v=13"></script>
+  <script src="folders.js?v=13"></script>
+  <script src="sources.js?v=13"></script>
+  <script src="books.js?v=13"></script>
+  <script src="review.js?v=13"></script>
 </body>
 </html>

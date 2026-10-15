@@ -56,7 +56,9 @@ async function setupServiceWorker() {
 }
 
 // URL locale servie par sw.js : le fichier original, avec Range pour l'audio.
-const driveUrl = (id) => `drive/${id}?t=${encodeURIComponent(state.token)}`;
+// Invité sans compte : lecture directe du fichier partagé avec la clé d'API.
+const driveUrl = (id) => state.token ? `drive/${id}?t=${encodeURIComponent(state.token)}`
+  : `${API}/files/${id}?alt=media&key=${window.APP_CONFIG?.API_KEY}`;
 
 // ---------- Authentification ----------
 
@@ -100,16 +102,19 @@ function signOut() {
 // ---------- API Drive ----------
 
 // opts : { method, body } pour les écritures (POST/PATCH/DELETE).
+// Sans connexion (invité), lecture des fichiers partagés par lien avec la clé d'API.
 async function api(path, params = {}, opts = {}, retry = true) {
   const url = new URL(API + path);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const headers = { Authorization: `Bearer ${state.token}` };
+  const headers = {};
+  if (state.token) headers.Authorization = `Bearer ${state.token}`;
+  else url.searchParams.set("key", window.APP_CONFIG?.API_KEY || "");
   if (opts.body) headers["Content-Type"] = "application/json";
   const res = await fetch(url, {
     method: opts.method || "GET", headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
-  if (res.status === 401 && retry) { await refreshToken(); return api(path, params, opts, false); }
+  if (res.status === 401 && retry && state.token) { await refreshToken(); return api(path, params, opts, false); }
   if (!res.ok) throw new Error(`Drive ${res.status} : ${await res.text()}`);
   return res.status === 204 ? null : res.json();
 }
@@ -746,5 +751,6 @@ function setupUI() {
 window.addEventListener("load", () => {
   setupServiceWorker(); // dès l'ouverture : l'app reste utilisable serveur éteint
   setupUI();
-  initAuth();
+  if (isGuest()) startGuest();
+  else initAuth();
 });

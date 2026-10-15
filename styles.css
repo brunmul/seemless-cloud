@@ -299,8 +299,7 @@ body.reading .player { z-index: 70; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* ---------- Invité ---------- */
-.for-guest { display: none; }
-html.guest .for-guest { display: block; } html.guest .for-owner { display: none; }
+html.guest #welcome { display: none; }
 html.guest .app { grid-template-columns: 1fr; }
 html.guest .sidebar, html.guest #btn-select { display: none; }
 

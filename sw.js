@@ -9,8 +9,8 @@
 
 const CACHE = "mon-cloud-media-app";
 const LIB_HOSTS = ["cdn.jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com"];
-const APP_FILES = ["./", "index.html", "config.js", "app.js?v=12", "folders.js?v=12", "sources.js?v=12", "books.js?v=12", "review.js?v=12",
-  "styles.css?v=12", "icon.svg", "icon-192.png", "icon-512.png", "manifest.webmanifest"];
+const APP_FILES = ["./", "index.html", "config.js", "app.js?v=13", "folders.js?v=13", "sources.js?v=13", "books.js?v=13", "review.js?v=13",
+  "styles.css?v=13", "icon.svg", "icon-192.png", "icon-512.png", "manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(APP_FILES)).catch(() => {}).then(() => self.skipWaiting()));

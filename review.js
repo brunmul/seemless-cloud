@@ -2,10 +2,12 @@
 // L'invité ouvre l'app avec un lien #invite=<id du dossier> et ne voit que ce
 // dossier : photos, vidéos, commentaires et pastilles de couleur.
 //
-// Un invité « Commentateur » ne peut pas modifier les fichiers, donc pas leurs
-// propriétés Drive. Les pastilles sont des commentaires Drive au texte fixe
-// (« 🔴 Pastille rouge ») : chacun pose les siennes, tout le monde les voit,
-// y compris dans Google Drive.
+// L'invité n'a pas besoin de compte Google : le dossier est partagé « tous ceux
+// qui ont le lien », lu avec la clé d'API de l'app, et les commentaires vont
+// dans la boîte à commentaires (boite-commentaires.gs, un script Google de
+// Bruno), protégée par la clé secrète du lien #invite=<dossier>&k=<clé>.
+// Une pastille est un commentaire au texte fixe (« 🔴 Pastille rouge ») :
+// chacun pose la sienne, tout le monde les voit.
 
 const TAGS = [
   { key: "rouge", label: "Pastille rouge", emoji: "🔴", color: "#ff453a" },
@@ -20,10 +22,12 @@ const tagText = (t) => `${t.emoji} ${t.label}`;
 const tagOf = (comment) => TAGS.find((t) => comment.content?.trim() === tagText(t));
 
 const REVIEW_FIELDS = "id, name, mimeType, thumbnailLink, createdTime, imageMediaMetadata(time, width, height), videoMediaMetadata(durationMillis)";
-const COMMENT_FIELDS = "id, content, createdTime, deleted, author(displayName, me), replies(id, content, createdTime, deleted, author(displayName, me))";
 
 const review = {
   folders: new Map(),   // id -> { meta, subs, items } : dossiers déjà chargés
+  root: null,           // dossier partagé dont on lit la boîte à commentaires
+  key: null,
+  ready: false, error: null,
   comments: new Map(),  // fileId -> [commentaires]
   filter: null,         // clé de pastille, "none" ou null (tout)
   list: [], index: 0,   // visionneuse
@@ -34,9 +38,9 @@ const review = {
 
 // Le lien d'invitation est mémorisé : l'app installée rouvre le même dossier.
 (function readInvite() {
-  const m = location.hash.match(/invite=([\w-]+)/);
+  const m = location.hash.match(/invite=([\w-]+)&k=([\w-]+)/);
   if (m) {
-    settings.guest = { id: m[1] };
+    settings.guest = { id: m[1], key: m[2], name: settings.guest?.name };
     saveSettings();
     history.replaceState(null, "", location.pathname + location.search);
   }
@@ -45,7 +49,16 @@ const review = {
 
 const isGuest = () => !!settings.guest;
 
+// L'invité arrive directement sur le dossier, sans connexion.
+function startGuest() {
+  $("#welcome").hidden = true;
+  $("#app").hidden = false;
+  state.history = [];
+  go({ name: "review", id: settings.guest.id }, false);
+}
+
 function leaveGuest() {
+  if (!confirm("Fermer ce dossier partagé ? Il faudra rouvrir le lien d'invitation pour le revoir.")) return;
   delete settings.guest;
   saveSettings();
   location.reload();
@@ -72,18 +85,97 @@ async function loadReviewFolder(id, fresh) {
     .sort((a, b) => a.date - b.date);
   const entry = { meta, subs, items };
   review.folders.set(id, entry);
-  loadComments(items);
   return entry;
 }
 
-// Commentaires de chaque fichier, quelques requêtes à la fois ; chaque
-// vignette se met à jour dès que les siens arrivent.
-function loadComments(items) {
-  pool(items.filter((f) => !review.comments.has(f.id)), 8, async (f) => {
-    const { comments } = await api(`/files/${f.id}/comments`, { fields: `comments(${COMMENT_FIELDS})`, pageSize: 100 });
-    review.comments.set(f.id, comments.filter((c) => !c.deleted));
-    refreshTile(f.id);
+// ---------- Boîte à commentaires ----------
+
+const boxUrl = () => window.APP_CONFIG?.REVIEW_URL;
+
+function myId() {
+  if (!settings.me) { settings.me = crypto.randomUUID(); saveSettings(); }
+  return settings.me;
+}
+
+async function box(action, data = {}) {
+  if (!boxUrl()) throw new Error("la boîte à commentaires n'est pas encore installée");
+  // Corps en texte brut : pas de requête préalable CORS vers Google Apps Script.
+  const res = await fetch(boxUrl(), { method: "POST",
+    body: JSON.stringify({ action, folder: review.root, key: review.key, by: myId(), ...data }) });
+  const out = await res.json();
+  if (out.error) throw new Error(out.error);
+  return out;
+}
+
+// Clé d'un dossier pour le propriétaire : le script vérifie son jeton Google.
+async function ownerKey(folder) {
+  settings.reviewKeys ||= {};
+  if (!settings.reviewKeys[folder]) {
+    settings.reviewKeys[folder] = (await box("key", { folder, token: state.token })).key;
+    saveSettings();
+  }
+  return settings.reviewKeys[folder];
+}
+
+// Prénom affiché sous les commentaires : demandé une fois à l'invité.
+async function myName() {
+  if (!isGuest()) {
+    state.myName ||= (await api("/about", { fields: "user(displayName)" })).user.displayName;
+    return state.myName;
+  }
+  if (!settings.guest.name) {
+    const name = await askName();
+    if (!name) throw new Error("cancel");
+    settings.guest.name = name;
+    saveSettings();
+  }
+  return settings.guest.name;
+}
+
+function askName() {
+  return new Promise((resolve) => {
+    const input = $("#name-input");
+    input.value = "";
+    $("#name-ask").hidden = false;
+    input.focus();
+    const done = (v) => { $("#name-ask").hidden = true; resolve(v); };
+    $("#name-form").onsubmit = (e) => { e.preventDefault(); const v = input.value.trim().slice(0, 40); if (v) done(v); };
+    $("#name-cancel").onclick = () => done(null);
   });
+}
+
+// Format de la boîte -> format affiché (celui des commentaires Drive).
+const asComment = (c) => ({ id: c.id, content: c.text, createdTime: c.at, author: { displayName: c.name, me: c.me }, replies: [] });
+
+function setComments(list) {
+  review.comments = new Map();
+  const top = new Map();
+  for (const c of list.filter((x) => !x.parent)) {
+    const one = asComment(c);
+    top.set(c.id, one);
+    if (!review.comments.has(c.file)) review.comments.set(c.file, []);
+    review.comments.get(c.file).push(one);
+  }
+  for (const r of list.filter((x) => x.parent)) top.get(r.parent)?.replies.push(asComment(r));
+}
+
+// Ouvre la boîte du dossier partagé ; l'affichage n'attend pas.
+function openBox(root) {
+  if (review.root === root) return;
+  Object.assign(review, { root, key: null, ready: false, error: null, comments: new Map() });
+  (async () => {
+    try {
+      const key = isGuest() ? settings.guest.key : await ownerKey(root);
+      if (review.root !== root) return;
+      review.key = key;
+      const { comments } = await box("list");
+      if (review.root !== root) return;
+      setComments(comments);
+    } catch (e) { console.error(e); review.error = e.message; }
+    review.ready = true;
+    document.querySelectorAll(".rv-tile").forEach((t) => refreshTile(t.dataset.id));
+    if (!$("#rv").hidden) drawSide();
+  })();
 }
 
 const commentsOf = (id) => review.comments.get(id) || [];
@@ -93,9 +185,10 @@ const myTag = (id) => tagsOf(id).find((x) => x.c.author?.me);
 
 // ---------- Vue « Revue » ----------
 
-async function renderReview({ id }) {
+async function renderReview({ id, root }) {
   const c = $("#content");
   gridObserver?.disconnect();
+  openBox(root || id);
   const cached = review.folders.get(id);
   if (!cached) {
     setHeader("Chargement…", "");
@@ -106,9 +199,8 @@ async function renderReview({ id }) {
   catch (e) {
     console.error(e);
     setHeader("Dossier introuvable", "");
-    c.innerHTML = `<div class="empty">Ce dossier n'est pas partagé avec ce compte Google, ou il n'existe plus.<br><br>
-      <button id="rv-signout">Changer de compte</button></div>`;
-    $("#rv-signout").onclick = signOut;
+    c.innerHTML = isGuest() ? `<div class="empty">Ce dossier n'est plus partagé, ou il n'existe plus.<br>Demande un nouveau lien d'invitation.</div>`
+      : `<div class="empty">Ce dossier n'existe plus.</div>`;
     return;
   }
   if (state.view.id !== id) return;
@@ -122,12 +214,8 @@ function drawReview(id, entry) {
   const sub = [photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
     owner && !owner.me ? `partagé par ${owner.displayName}` : ""].filter(Boolean).join(" · ");
   const actions = [];
-  if (isGuest() && !state.history.length) {
-    if (owner?.me) actions.push({ label: "Revenir à ma bibliothèque", onClick: leaveGuest });
-    actions.push({ label: "Déconnexion", onClick: signOut });
-  } else if (!isGuest()) {
-    actions.push({ label: "Inviter…", onClick: () => openInvite({ id, name: meta.name }) });
-  }
+  if (isGuest() && !state.history.length) actions.push({ label: "Quitter", onClick: leaveGuest });
+  else if (!isGuest() && id === review.root) actions.push({ label: "Inviter…", onClick: () => openInvite({ id, name: meta.name }) });
   setHeader(meta.name, sub, { zoom: true, actions });
 
   const c = $("#content");
@@ -139,7 +227,7 @@ function drawReview(id, entry) {
     <div class="grid flush rv-grid" id="rv-grid"></div>
     ${!items.length && !subs.length ? empty("Ce dossier est vide.") : ""}
     ${items.length && !visible.length ? empty("Aucun fichier avec cette pastille.") : ""}`;
-  c.querySelectorAll(".folder-open").forEach((b) => (b.onclick = () => go({ name: "review", id: b.dataset.id })));
+  c.querySelectorAll(".folder-open").forEach((b) => (b.onclick = () => go({ name: "review", id: b.dataset.id, root: review.root })));
 
   const grid = $("#rv-grid");
   const frag = document.createDocumentFragment();
@@ -272,8 +360,8 @@ function drawSide() {
     `<span><i style="background:${x.tag.color}"></i>${esc(x.c.author?.displayName || "Quelqu'un")}</span>`).join("");
 
   const notes = notesOf(f.id);
-  const loaded = review.comments.has(f.id);
-  $("#rv-comments").innerHTML = !loaded ? `<p class="muted">Chargement…</p>`
+  $("#rv-comments").innerHTML = !review.ready ? `<p class="muted">Chargement…</p>`
+    : review.error ? `<p class="muted">Commentaires indisponibles : ${esc(review.error)}.</p>`
     : notes.length ? notes.map((c) => commentHtml(c)).join("")
     : `<p class="muted rv-empty">Pas encore de commentaire.</p>`;
   $("#rv-comments").querySelectorAll("[data-reply]").forEach((b) => (b.onclick = () => {
@@ -299,20 +387,19 @@ function commentHtml(c) {
 async function setTag(f, key) {
   const current = myTag(f.id);
   const tag = TAGS.find((t) => t.key === key);
-  const list = commentsOf(f.id).slice();
   try {
     if (current && !tag) {
-      await api(`/files/${f.id}/comments/${current.c.id}`, {}, { method: "DELETE" });
-      review.comments.set(f.id, list.filter((c) => c !== current.c));
+      await box("delete", { id: current.c.id });
+      review.comments.set(f.id, commentsOf(f.id).filter((c) => c !== current.c));
     } else if (current && tag) {
       if (current.tag.key === key) return;
-      const c = await api(`/files/${f.id}/comments/${current.c.id}`, { fields: COMMENT_FIELDS }, { method: "PATCH", body: { content: tagText(tag) } });
-      review.comments.set(f.id, list.map((x) => (x === current.c ? c : x)));
+      await box("edit", { id: current.c.id, text: tagText(tag) });
+      current.c.content = tagText(tag);
     } else if (tag) {
-      const c = await api(`/files/${f.id}/comments`, { fields: COMMENT_FIELDS }, { method: "POST", body: { content: tagText(tag) } });
-      review.comments.set(f.id, [...list, c]);
+      const { comment } = await box("add", { file: f.id, text: tagText(tag), name: await myName() });
+      review.comments.set(f.id, [...commentsOf(f.id), asComment(comment)]);
     }
-  } catch (e) { console.error(e); toast("Impossible de poser la pastille"); return; }
+  } catch (e) { if (e.message !== "cancel") { console.error(e); toast("Impossible de poser la pastille"); } return; }
   refreshTile(f.id);
   if (review.list[review.index] === f) drawSide();
 }
@@ -325,19 +412,13 @@ async function sendComment(e) {
   if (!text || !f) return;
   input.disabled = true;
   try {
-    const list = commentsOf(f.id).slice();
-    if (review.replyTo) {
-      const r = await api(`/files/${f.id}/comments/${review.replyTo.id}/replies`,
-        { fields: "id, content, createdTime, deleted, author(displayName, me)" }, { method: "POST", body: { content: text } });
-      const parent = list.find((c) => c.id === review.replyTo.id);
-      if (parent) parent.replies = [...(parent.replies || []), r];
-    } else {
-      list.push(await api(`/files/${f.id}/comments`, { fields: COMMENT_FIELDS }, { method: "POST", body: { content: text } }));
-    }
-    review.comments.set(f.id, list);
+    const name = await myName();
+    const { comment } = await box("add", { file: f.id, parent: review.replyTo?.id, text, name });
+    if (review.replyTo) review.replyTo.replies.push(asComment(comment));
+    else review.comments.set(f.id, [...commentsOf(f.id), asComment(comment)]);
     input.value = "";
     review.replyTo = null;
-  } catch (err) { console.error(err); toast("Impossible d'envoyer le commentaire"); }
+  } catch (err) { if (err.message !== "cancel") { console.error(err); toast("Impossible d'envoyer le commentaire"); } }
   input.disabled = false;
   input.blur(); // les raccourcis clavier (flèches, 1 à 7) remarchent tout de suite
   refreshTile(f.id);
@@ -347,7 +428,7 @@ async function sendComment(e) {
 async function deleteComment(f, id) {
   if (!confirm("Supprimer ce commentaire ?")) return;
   try {
-    await api(`/files/${f.id}/comments/${id}`, {}, { method: "DELETE" });
+    await box("delete", { id });
     review.comments.set(f.id, commentsOf(f.id).filter((c) => c.id !== id));
   } catch (e) { console.error(e); toast("Impossible de supprimer"); return; }
   refreshTile(f.id);
@@ -356,51 +437,61 @@ async function deleteComment(f, id) {
 
 // ---------- Inviter quelqu'un (propriétaire) ----------
 
-async function openInvite(folder) {
-  const url = publicUrl();
-  const link = url ? `${url}#invite=${folder.id}` : "";
-  $("#invite-title").textContent = `Inviter sur « ${folder.name} »`;
-  $("#invite-email").value = "";
-  $("#invite-link").value = link;
-  $("#invite-link-row").hidden = !link;
-  $("#invite-note").textContent = link ? ""
-    : "L'app n'a pas encore d'adresse publique : l'invité aura accès au dossier dans Google Drive, mais pas encore à l'app.";
-  $("#invite-people").innerHTML = "";
-  $("#invite").hidden = false;
-  $("#invite-email").focus();
-  $("#invite-copy").onclick = async () => {
-    try { await navigator.clipboard.writeText(link); toast("Lien copié"); } catch { $("#invite-link").select(); }
-  };
-  $("#invite-send").onclick = () => sendInvite(folder, link);
-  drawPeople(folder);
+// Le dossier devient lisible par « tous ceux qui ont le lien » (introuvable
+// sans le lien) ; le lien d'invitation porte aussi la clé de la boîte.
+async function linkPermission(folder) {
+  const { permissions } = await api(`/files/${folder.id}/permissions`, { fields: "permissions(id, type, role)" });
+  return permissions.find((p) => p.type === "anyone");
 }
 
-const roleName = (r) => ({ commenter: "Commentateur", reader: "Lecteur", writer: "Éditeur" }[r] || r);
+async function openInvite(folder) {
+  $("#invite-title").textContent = `Inviter sur « ${folder.name} »`;
+  $("#invite-link-row").hidden = true;
+  $("#invite-send").hidden = $("#invite-stop").hidden = true;
+  $("#invite-note").textContent = "";
+  $("#invite").hidden = false;
+  $("#invite-send").onclick = () => createLink(folder);
+  $("#invite-stop").onclick = () => stopLink(folder);
+  $("#invite-copy").onclick = async () => {
+    try { await navigator.clipboard.writeText($("#invite-link").value); toast("Lien copié"); } catch { $("#invite-link").select(); }
+  };
+  if (!publicUrl() || !boxUrl()) {
+    $("#invite-note").textContent = !publicUrl() ? "L'app n'a pas encore d'adresse publique (PUBLIC_URL dans config.js)."
+      : "Installe d'abord la boîte à commentaires (REVIEW_URL dans config.js, voir README).";
+    return;
+  }
+  try { (await linkPermission(folder)) ? await showLink(folder) : ($("#invite-send").hidden = false); }
+  catch (e) { console.error(e); $("#invite-note").textContent = "Impossible de lire le partage : " + e.message; }
+}
 
-async function sendInvite(folder, link) {
-  const email = $("#invite-email").value.trim();
-  if (!/^\S+@\S+\.\S+$/.test(email)) { $("#invite-email").focus(); return; }
+async function showLink(folder) {
+  const key = await ownerKey(folder.id);
+  $("#invite-link").value = `${publicUrl()}#invite=${folder.id}&k=${key}`;
+  $("#invite-link-row").hidden = false;
+  $("#invite-send").hidden = true;
+  $("#invite-stop").hidden = false;
+  $("#invite-note").textContent = "Envoie ce lien à qui tu veux, par message ou par e-mail. Pas besoin de compte Google.";
+}
+
+async function createLink(folder) {
   $("#invite-send").disabled = true;
   try {
-    await api(`/files/${folder.id}/permissions`, {
-      sendNotificationEmail: true,
-      emailMessage: link ? `Ouvre ce lien pour voir les photos, commenter et poser des pastilles : ${link}` : "",
-    }, { method: "POST", body: { type: "user", role: "commenter", emailAddress: email } });
-    toast(`${email} est invité`);
-    $("#invite-email").value = "";
-    $("#invite-note").textContent = "Dernière étape : ajoute aussi cette adresse dans Google Cloud, Audience, Utilisateurs test. Sans ça, Google refusera sa connexion à l'app.";
-    drawPeople(folder);
-  } catch (e) { console.error(e); alert("Impossible d'inviter : " + e.message); }
+    await api(`/files/${folder.id}/permissions`, {}, { method: "POST", body: { type: "anyone", role: "reader", allowFileDiscovery: false } });
+    await showLink(folder);
+    $("#invite-copy").click();
+  } catch (e) { console.error(e); $("#invite-note").textContent = "Impossible de créer le lien : " + e.message; }
   $("#invite-send").disabled = false;
 }
 
-async function drawPeople(folder) {
+async function stopLink(folder) {
+  if (!confirm("Désactiver le lien ? Les personnes qui l'ont n'auront plus accès au dossier. Leurs commentaires restent.")) return;
   try {
-    const { permissions } = await api(`/files/${folder.id}/permissions`, { fields: "permissions(id, type, role, emailAddress, displayName)" });
-    const people = permissions.filter((p) => p.type === "user" && p.role !== "owner");
-    $("#invite-people").innerHTML = people.length ? `<div class="muted">Déjà invités</div>` + people.map((p) =>
-      `<div class="invite-person"><span>${esc(p.displayName || p.emailAddress)}</span><span class="muted">${roleName(p.role)}</span></div>`).join("") : "";
-  } catch {}
+    const p = await linkPermission(folder);
+    if (p) await api(`/files/${folder.id}/permissions/${p.id}`, {}, { method: "DELETE" });
+    $("#invite-link-row").hidden = $("#invite-stop").hidden = true;
+    $("#invite-send").hidden = false;
+    $("#invite-note").textContent = "Lien désactivé.";
+  } catch (e) { console.error(e); $("#invite-note").textContent = "Impossible de désactiver le lien : " + e.message; }
 }
 
 // ---------- Branchements ----------
@@ -412,7 +503,6 @@ window.addEventListener("load", () => {
   $("#rv-form").onsubmit = sendComment;
   $("#rv-input").onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendComment(e); };
   $("#invite-close").onclick = () => ($("#invite").hidden = true);
-  $("#invite-email").onkeydown = (e) => { if (e.key === "Enter") $("#invite-send").click(); };
   document.addEventListener("keydown", (e) => {
     if ($("#rv").hidden) return;
     const typing = e.target.closest?.("textarea, input");

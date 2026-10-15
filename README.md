@@ -39,6 +39,26 @@ Puis ouvre <http://localhost:8080> et clique sur **Se connecter avec Google**. G
 
 > Il faut passer par `http://localhost` (pas en ouvrant `index.html` directement) car le streaming audio passe par un service worker, qui exige une vraie adresse web.
 
+## Inviter quelqu'un sans compte Google (une seule fois, ~5 min)
+
+Sur un album ou un dossier, « Inviter… » crée un lien : la personne voit les
+photos et les vidéos, commente et pose des pastilles, sans compte Google. Le
+dossier passe en « tous ceux qui ont le lien peuvent voir » (introuvable sans
+le lien) ; « Désactiver le lien » le rend de nouveau privé.
+
+1. **Boîte à commentaires** : sur https://script.google.com, « Nouveau projet ».
+   Colle le contenu de `boite-commentaires.gs` à la place du code, enregistre.
+   Puis « Déployer » > « Nouveau déploiement » > type « Application Web » :
+   exécuter en tant que **moi**, accès **tout le monde**. Autorise (« Paramètres
+   avancés » > « Accéder au projet » si Google prévient). Copie l'URL de
+   l'application Web dans `config.js`, `REVIEW_URL`.
+2. **Clé d'API** : dans Google Cloud, « API et services » > « Identifiants » >
+   « Créer des identifiants » > « Clé API », limitée à l'API Google Drive.
+   Copie-la dans `config.js`, `API_KEY`.
+
+Les commentaires sont enregistrés dans ton Drive, un fichier
+« Seemless cloud - commentaires … .json » par dossier partagé.
+
 ## Comment ça marche
 
 | Fichier | Rôle |
