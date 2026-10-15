@@ -1,10 +1,11 @@
 // Rubrique « Partages » : les dossiers partagés par lien, leur activité
 // (commentaires et pastilles des invités) et leurs options.
 
-const SHARE_FIELDS = "id, name, modifiedTime";
+const SHARE_FIELDS = "id, name, modifiedTime, parents";
+const MEDIA_Q = "trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')";
 
 const shares = {
-  list: null,          // [{ folder, items, comments, error }] ; null tant que pas chargé
+  list: null,          // [{ folder, items, subs, comments, error }] ; null tant que pas chargé
   loading: null,
   at: 0,
 };
@@ -15,20 +16,29 @@ async function loadShares(fresh) {
   if (shares.list && !fresh && Date.now() - shares.at < 60_000) return shares.list;
   shares.loading = (async () => {
     const q = `mimeType = '${FOLDER_MIME}' and 'me' in owners and trashed = false and (visibility = 'anyoneWithLink' or visibility = 'anyoneCanFind')`;
-    const folders = await listAll(q, SHARE_FIELDS, null, "modifiedTime desc");
-    const list = folders.map((folder) => ({ folder, items: null, comments: null, error: null }));
+    const all = await listAll(q, SHARE_FIELDS, null, "modifiedTime desc");
+    // Les sous-dossiers d'un dossier partagé le sont aussi : on ne garde que le haut.
+    const ids = new Set(all.map((f) => f.id));
+    const folders = all.filter((f) => !(f.parents || []).some((p) => ids.has(p)));
+    const list = folders.map((folder) => ({ folder, items: [], subs: [], comments: [], error: null }));
     await pool(list, 4, async (s) => {
-      const media = `'${s.folder.id}' in parents and trashed = false and (mimeType contains 'image/' or mimeType contains 'video/')`;
-      try { s.items = await listAll(media, "id, mimeType, thumbnailLink, createdTime", null, "createdTime desc"); }
-      catch { s.items = []; }
+      try {
+        const kids = await listAll(`'${s.folder.id}' in parents and trashed = false and (mimeType = '${FOLDER_MIME}' or mimeType contains 'image/' or mimeType contains 'video/')`,
+          "id, name, mimeType, thumbnailLink, createdTime", null, "createdTime desc");
+        s.subs = kids.filter((f) => f.mimeType === FOLDER_MIME);
+        s.items = kids.filter((f) => f.mimeType !== FOLDER_MIME);
+        // Pas de photo à la racine : la couverture vient des sous-dossiers.
+        if (!s.items.length && s.subs.length) {
+          const inSubs = s.subs.slice(0, 10).map((f) => `'${f.id}' in parents`).join(" or ");
+          s.cover = (await api("/files", { q: `(${inSubs}) and ${MEDIA_Q}`, pageSize: 4, orderBy: "createdTime desc",
+            fields: "files(id, mimeType, thumbnailLink, createdTime)" })).files;
+        }
+      } catch (e) { console.error(e); }
+      if (!boxUrl()) return;
       try {
         const key = await ownerKey(s.folder.id);
-        const res = await fetch(boxUrl(), { method: "POST",
-          body: JSON.stringify({ action: "list", folder: s.folder.id, key, by: myId() }) });
-        const out = await res.json();
-        if (out.error) throw new Error(out.error);
-        s.comments = out.comments;
-      } catch (e) { s.comments = []; s.error = e.message; }
+        s.comments = (await box("list", { folder: s.folder.id, key })).comments;
+      } catch (e) { s.error = e.message; }
     });
     shares.list = list;
     shares.at = Date.now();
@@ -123,7 +133,7 @@ function drawShares() {
   c.querySelectorAll(".sh-card").forEach((card) => {
     const s = shares.list.find((x) => x.folder.id === card.dataset.id);
     card.querySelectorAll("img[data-thumb]").forEach((img) => {
-      const f = s.items.find((x) => x.id === img.dataset.thumb);
+      const f = coverOf(s).find((x) => x.id === img.dataset.thumb);
       if (f) setThumb(img, f, 400);
     });
     card.querySelector(".sh-open").onclick = () => openShare(s);
@@ -133,11 +143,13 @@ function drawShares() {
   });
 }
 
+const coverOf = (s) => (s.items.length ? s.items : s.cover || []).slice(0, 4);
+
 function shareCard(s) {
   const { tags, notes, people } = shareStats(s);
   const fresh = newCount(s);
   const photos = s.items.filter((f) => !f.mimeType.startsWith("video/")).length, videos = s.items.length - photos;
-  const cover = s.items.slice(0, 4);
+  const cover = coverOf(s);
   const last = lastActivity(s);
   return `<div class="sh-card" data-id="${s.folder.id}">
     <button class="sh-open">
@@ -145,9 +157,10 @@ function shareCard(s) {
         ${fresh ? `<span class="sh-new">${fresh} nouveau${fresh > 1 ? "x" : ""}</span>` : ""}</div>
       <div class="sh-body">
         <b>${esc(s.folder.name)}</b>
-        <span class="muted">${[photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos")].filter(Boolean).join(" · ") || "Vide"}</span>
+        <span class="muted">${[photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
+          s.subs.length && plural(s.subs.length, "sous-dossier", "sous-dossiers")].filter(Boolean).join(" · ") || "Vide"}</span>
         <span class="sh-stats">${TAGS.filter((t) => tags.has(t.key)).map((t) => `<span><i style="background:${t.color}"></i>${tags.get(t.key)}</span>`).join("")}
-          ${notes ? `<span>💬 ${notes}</span>` : ""}${!tags.size && !notes ? `<span class="muted">${s.error ? "Commentaires indisponibles" : "Pas encore de réaction"}</span>` : ""}</span>
+          ${notes ? `<span>💬 ${notes}</span>` : ""}${!tags.size && !notes ? `<span class="muted">${s.error ? `<span title="${esc(s.error)}">Commentaires indisponibles</span>` : "Pas encore de réaction"}</span>` : ""}</span>
         <span class="sh-foot">${avatars(people)}<span class="muted">${last ? ago(last) : ""}</span></span>
       </div>
     </button>
@@ -182,20 +195,71 @@ async function stopShare(s) {
   try {
     const p = await linkPermission(s.folder);
     if (p) await api(`/files/${s.folder.id}/permissions/${p.id}`, {}, { method: "DELETE" });
-    shares.list = shares.list.filter((x) => x !== s);
-    markShared(s.folder.id, false);
+    sharedChanged(s.folder, false);
     toast(`« ${s.folder.name} » n'est plus partagé`);
     if (state.view.name === "shares") drawShares();
   } catch (e) { console.error(e); toast("Impossible de désactiver le lien"); }
 }
 
-// Nouveau partage : on choisit un dossier, puis la fenêtre d'invitation.
+// Un partage créé ou arrêté ailleurs (fenêtre d'invitation) : on met à jour la liste.
+function sharedChanged(folder, shared) {
+  markShared(folder.id, shared);
+  if (!shared && shares.list) shares.list = shares.list.filter((x) => x.folder.id !== folder.id);
+  shares.at = 0;
+  if (state.view.name === "shares") renderShares();
+}
+
+// Nouveau partage : on parcourt tout Mon Drive (pas seulement les sources),
+// on entre dans un dossier, puis « Partager » ouvre la fenêtre d'invitation.
+const sp = { stack: [], cache: new Map() };
+
 function openSharePicker() {
+  sp.stack = [];
   openFolderPicker({
     title: "Partager un dossier",
-    confirm: "Partager ce dossier",
-    onPick: (f) => { shares.at = 0; openInvite(f); },
+    render: renderSharePicker,
+    current: () => sp.stack.at(-1),
+    onPick: (f) => openInvite(f),
   });
+}
+
+function spChildren(id) {
+  if (!sp.cache.has(id)) {
+    const p = listAll(`'${id}' in parents and mimeType = '${FOLDER_MIME}' and trashed = false`, "id, name", null, "name");
+    p.catch(() => sp.cache.delete(id));
+    sp.cache.set(id, p);
+  }
+  return sp.cache.get(id);
+}
+
+async function renderSharePicker() {
+  const at = sp.stack.at(-1);
+  const list = $("#picker-list");
+  $("#picker-path").textContent = ["Mon Drive", ...sp.stack.map((f) => f.name)].join(" › ");
+  $("#picker-confirm").textContent = at ? `Partager « ${at.name} »` : "Ouvre un dossier";
+  $("#picker-confirm").disabled = !at;
+  list.innerHTML = `<p class="muted" style="padding:8px">Chargement…</p>`;
+  let subs;
+  try { subs = await spChildren(at ? at.id : "root"); }
+  catch (e) { list.innerHTML = `<p class="muted" style="padding:8px">Impossible de lire Drive : ${esc(e.message)}</p>`; return; }
+  if (sp.stack.at(-1) !== at) return; // on a changé de dossier entre-temps
+  const shared = new Set((shares.list || []).map((s) => s.folder.id));
+  list.innerHTML = "";
+  if (at) {
+    const up = document.createElement("button");
+    up.className = "picker-item";
+    up.textContent = "‹ Retour";
+    up.onclick = () => { sp.stack.pop(); renderSharePicker(); };
+    list.appendChild(up);
+  }
+  for (const f of subs) {
+    const b = document.createElement("button");
+    b.className = "picker-item";
+    b.textContent = `📁 ${f.name}${shared.has(f.id) ? "  🔗" : ""}`;
+    b.onclick = () => { sp.stack.push(f); renderSharePicker(); };
+    list.appendChild(b);
+  }
+  if (!subs.length) list.insertAdjacentHTML("beforeend", `<p class="muted" style="padding:8px">${at ? "Aucun sous-dossier : tu peux partager celui-ci." : "Aucun dossier."}</p>`);
 }
 
 // ---------- Vue « Activité » ----------

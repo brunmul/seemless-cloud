@@ -78,8 +78,8 @@ function renderDrive({ id }) {
     .map((t) => ({ ...t, title: trackTitle(t.name), album: { id, name: folder.name } }));
 
   const actions = [{ label: "+ Nouveau dossier", onClick: () => createAlbum(id) }];
-  if (id !== state.rootId) actions.push({ label: folder.shared ? "🔗 Partagé" : "Partager", onClick: () => shareFolder(folder) },
-    { label: "Revue", onClick: () => go({ name: "review", id }) }, { label: "Inviter…", onClick: () => openInvite(folder) });
+  if (id !== state.rootId) actions.push({ label: "Revue", onClick: () => go({ name: "review", id }) },
+    { label: folder.shared ? "🔗 Partagé…" : "Partager…", onClick: () => openInvite(folder) });
   setHeader(folder.name, "", { zoom: true, select: photos.length > 0, actions });
 
   const c = $("#content");
@@ -100,7 +100,7 @@ function renderDrive({ id }) {
         <small>${[n ? plural(n, "photo", "photos") : "", f.shared ? "partagé" : ""].filter(Boolean).join(" · ") || "&nbsp;"}</small></span></button>
         <button class="folder-share" title="Partager par lien">🔗</button>`;
       card.querySelector(".folder-open").onclick = () => go({ name: "drive", id: f.id });
-      card.querySelector(".folder-share").onclick = () => shareFolder(f);
+      card.querySelector(".folder-share").onclick = () => openInvite(f);
       grid.appendChild(card);
     }
     c.appendChild(grid);
@@ -160,12 +160,13 @@ function openFolderPicker(opts) {
 
 function pickerConfirm() {
   if (!pickerOpts) return confirmMove();
-  const f = state.folders.get(pickerAt) || { id: pickerAt, name: settings.sources.find((s) => s.id === pickerAt)?.name || "Dossier" };
+  const f = pickerOpts.current?.() || state.folders.get(pickerAt) || { id: pickerAt, name: settings.sources.find((s) => s.id === pickerAt)?.name || "Dossier" };
   $("#picker").hidden = true;
   pickerOpts.onPick(f);
 }
 
 function renderPicker() {
+  if (pickerOpts?.render) return pickerOpts.render();
   // pickerAt === null : liste des sources.
   $("#picker-path").textContent = pickerAt ? pathFromSource(pickerAt)
     .map((x) => state.folders.get(x)?.name || "Mon Drive").join(" › ") : "Tes sources";
@@ -233,8 +234,9 @@ async function confirmMove() {
 // ---------- Partager par lien ----------
 
 function markShared(id, shared) {
-  const raw = state.lib.folders.find((f) => f.id === id);
-  if (raw) raw.shared = shared;
+  const raw = state.lib?.folders.find((f) => f.id === id);
+  if (!raw) return;
+  raw.shared = shared;
   buildLibrary();
   saveLibrary();
 }

@@ -97,24 +97,38 @@ function myId() {
   return settings.me;
 }
 
-async function box(action, data = {}) {
+async function box(action, data = {}, retried) {
   if (!boxUrl()) throw new Error("la boîte à commentaires n'est pas encore installée");
+  const body = { action, folder: review.root, key: review.key, by: myId(), ...data };
   // Corps en texte brut : pas de requête préalable CORS vers Google Apps Script.
-  const res = await fetch(boxUrl(), { method: "POST",
-    body: JSON.stringify({ action, folder: review.root, key: review.key, by: myId(), ...data }) });
+  const res = await fetch(boxUrl(), { method: "POST", body: JSON.stringify(body) });
   const out = await res.json();
+  // Clé périmée côté propriétaire : on en redemande une et on réessaie.
+  if (out.error && /invitation invalide/.test(out.error) && !isGuest() && action !== "key" && !retried) {
+    const key = await ownerKey(body.folder, true);
+    if (body.folder === review.root) review.key = key;
+    return box(action, { ...data, folder: body.folder, key }, true);
+  }
   if (out.error) throw new Error(out.error);
   return out;
 }
 
 // Clé d'un dossier pour le propriétaire : le script vérifie son jeton Google.
-async function ownerKey(folder) {
-  settings.reviewKeys ||= {};
-  if (!settings.reviewKeys[folder]) {
-    settings.reviewKeys[folder] = (await box("key", { folder, token: state.token })).key;
+// Une demande à la fois : le script crée son secret lors de la toute première.
+let keyQueue = Promise.resolve();
+function ownerKey(folder, fresh) {
+  delete settings.reviewKeys; // anciennes clés, parfois fausses
+  settings.boxKeys ||= {};
+  if (settings.boxKeys[folder] && !fresh) return Promise.resolve(settings.boxKeys[folder]);
+  const p = keyQueue.then(async () => {
+    if (settings.boxKeys[folder] && !fresh) return settings.boxKeys[folder];
+    const { key } = await box("key", { folder, token: state.token });
+    settings.boxKeys[folder] = key;
     saveSettings();
-  }
-  return settings.reviewKeys[folder];
+    return key;
+  });
+  keyQueue = p.catch(() => {});
+  return p;
 }
 
 // Prénom affiché sous les commentaires : demandé une fois à l'invité.
@@ -217,7 +231,7 @@ function drawReview(id, entry) {
   if (isGuest() && !state.history.length) actions.push({ label: "Quitter", onClick: leaveGuest });
   else if (!isGuest() && id === review.root) actions.push(
     { label: "Activité", onClick: () => go({ name: "share-activity", id }) },
-    { label: "Inviter…", onClick: () => openInvite({ id, name: meta.name }) });
+    { label: "Partager…", onClick: () => openInvite({ id, name: meta.name }) });
   setHeader(meta.name, sub, { zoom: true, actions });
 
   const c = $("#content");
@@ -491,6 +505,7 @@ async function createLink(folder) {
     await api(`/files/${folder.id}/permissions`, {}, { method: "POST", body: { type: "anyone", role: "reader", allowFileDiscovery: false } });
     await showLink(folder);
     $("#invite-copy").click();
+    sharedChanged(folder, true);
   } catch (e) { console.error(e); $("#invite-note").textContent = "Impossible de créer le lien : " + e.message; }
   $("#invite-send").disabled = false;
 }
@@ -503,6 +518,7 @@ async function stopLink(folder) {
     $("#invite-link-row").hidden = $("#invite-stop").hidden = true;
     $("#invite-send").hidden = false;
     $("#invite-note").textContent = "Lien désactivé.";
+    sharedChanged(folder, false);
   } catch (e) { console.error(e); $("#invite-note").textContent = "Impossible de désactiver le lien : " + e.message; }
 }
 

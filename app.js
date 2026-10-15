@@ -533,8 +533,8 @@ function renderAlbum({ id }) {
   const title = id === state.rootId ? "Non classées" : folder.name;
   const all = (state.photosByFolder.get(id) || []).filter((p) => !(settings.hideSmall && isSmall(p)));
   const list = all.filter((p) => matches(p.name));
-  const actions = id !== "_" && id !== state.rootId ? [{ label: folder.shared ? "🔗 Partagé" : "Partager", onClick: () => shareFolder(folder) },
-    { label: "Revue", onClick: () => go({ name: "review", id }) }, { label: "Inviter…", onClick: () => openInvite(folder) }] : [];
+  const actions = id !== "_" && id !== state.rootId ? [{ label: "Revue", onClick: () => go({ name: "review", id }) },
+    { label: folder.shared ? "🔗 Partagé…" : "Partager…", onClick: () => openInvite(folder) }] : [];
   setHeader(title, [plural(list.length, "photo", "photos"), folderPath(id)].filter(Boolean).join(" · "), { zoom: true, select: true, actions });
   state.currentGrid = photoGrid($("#content"), list, { byMonth: false });
 }
