@@ -58,7 +58,7 @@ function pathFromSource(id) {
 // ---------- Tous les dossiers ----------
 
 function renderSourceFolders() {
-  setHeader("Tous les dossiers", "Tes sources", { actions: [{ label: "Gérer les sources", onClick: () => goRoot("sources") }] });
+  setHeader("Google Drive", "Tes dossiers suivis", { actions: [{ label: "Dossiers suivis…", onClick: () => goRoot("sources") }] });
   gridObserver?.disconnect();
   const c = $("#content");
   c.innerHTML = `<div class="folder-grid">${settings.sources.map((s) => {
@@ -77,16 +77,17 @@ function renderDrive({ id }) {
   const tracks = state.lib.tracks.filter((t) => t.parents?.[0] === id)
     .map((t) => ({ ...t, title: trackTitle(t.name), album: { id, name: folder.name } }));
 
-  const actions = [{ label: "+ Nouveau dossier", onClick: () => createAlbum(id) }];
-  if (id !== state.rootId) actions.push({ label: "Revue", onClick: () => go({ name: "review", id }) },
-    { label: folder.shared ? "🔗 Partagé…" : "Partager…", onClick: () => openInvite(folder) });
-  setHeader(folder.name, "", { zoom: true, select: photos.length > 0, actions });
+  const actions = [{ label: "Nouveau dossier", onClick: () => createAlbum(id) }];
+  const own = id !== state.rootId;
+  if (own) actions.push({ label: "Commentaires", onClick: () => go({ name: "review", id }) });
+  setHeader(folder.name, "", { zoom: true, select: photos.length > 0, actions,
+    primary: own ? { label: folder.shared ? "Partagé" : "Partager…", icon: SHARE_ICON, onClick: () => openInvite(folder) } : null });
 
   const c = $("#content");
   gridObserver?.disconnect();
   const crumbs = ["", ...pathFromSource(id)];
   c.innerHTML = `<nav class="breadcrumb">${crumbs.map((x, k) =>
-    `${k ? "›" : ""}<button class="crumb" data-id="${x}">${esc(x ? state.folders.get(x)?.name || "Mon Drive" : "Sources")}</button>`).join("")}</nav>`;
+    `${k ? "›" : ""}<button class="crumb" data-id="${x}">${esc(x ? state.folders.get(x)?.name || "Mon Drive" : "Dossiers suivis")}</button>`).join("")}</nav>`;
   c.querySelectorAll(".crumb").forEach((b) => (b.onclick = () => go({ name: "drive", id: b.dataset.id || undefined }, false)));
 
   if (subs.length) {
@@ -300,7 +301,6 @@ window.addEventListener("load", () => {
   $("#picker-new").onclick = pickerNewFolder;
   $("#picker-confirm").onclick = pickerConfirm;
   $("#share-close").onclick = () => ($("#share").hidden = true);
-  $("#btn-settings").onclick = openSettings;
   $("#settings-close").onclick = () => ($("#settings").hidden = true);
   $("#settings-sources").onclick = () => { $("#settings").hidden = true; goRoot("sources"); };
   $("#set-hide-small").onchange = (e) => { settings.hideSmall = e.target.checked; saveSettings(); buildLibrary(); };

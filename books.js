@@ -91,13 +91,15 @@ function bindBookCards(c, list) {
   c.querySelectorAll(".book-card").forEach((el) => (el.onclick = () => openBook(list[+el.dataset.i])));
 }
 
+const BOOK_TABS = [["books", "Bibliothèque"], ["books-authors", "Auteurs"]];
+
 function renderBooks() {
   const list = state.books.filter((b) => matches(b.title + " " + b.author));
-  setHeader("Livres", plural(list.length, "livre", "livres"), { zoom: true });
+  setHeader("Livres", plural(list.length, "livre", "livres"), { zoom: true, tabs: sectionTabs(BOOK_TABS) });
   gridObserver?.disconnect();
   const c = $("#content");
   if (!state.books.length) {
-    c.innerHTML = empty("Aucun livre. Dans Sources, coche « Livres » sur le dossier qui contient tes EPUB ou PDF.");
+    c.innerHTML = empty("Aucun livre. Dans Dossiers suivis (menu de ton compte), coche « Livres » sur le dossier qui contient tes EPUB ou PDF.");
     return;
   }
   const current = list.filter((b) => reading[b.id] && reading[b.id].pct < 0.99)
@@ -117,7 +119,7 @@ function renderAuthors() {
     map.get(a).push(b);
   }
   const authors = [...map].filter(([a]) => matches(a)).sort((x, y) => x[0].localeCompare(y[0], "fr"));
-  setHeader("Auteurs", plural(authors.length, "auteur", "auteurs"));
+  setHeader("Livres", plural(authors.length, "auteur", "auteurs"), { tabs: sectionTabs(BOOK_TABS) });
   gridObserver?.disconnect();
   const c = $("#content");
   c.innerHTML = authors.length ? `<div class="author-list">${authors.map(([a, bs], i) =>

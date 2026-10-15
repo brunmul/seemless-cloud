@@ -67,7 +67,7 @@ function sourcesChanged() {
   saveSettings();
   if (state.lib.key !== sourcesKey()) {
     loadGeneration++;
-    $("#sync-status").textContent = settings.sources.length ? "Sources modifiées : clique sur Charger" : "";
+    $("#sync-status").textContent = settings.sources.length ? "Dossiers modifiés : clique sur Charger" : "";
   }
   if (!settings.sources.length) {
     state.lib = { folders: [], photos: [], tracks: [], books: [], rootId: state.rootId };
@@ -92,7 +92,7 @@ function removeSource(i) {
 
 async function renderSources() {
   const loaded = state.lib.key === sourcesKey() && settings.sources.length;
-  setHeader("Sources", "Les dossiers Drive à afficher dans tes photos et ta musique");
+  setHeader("Dossiers suivis", "Les dossiers Drive affichés dans Photos, Musique et Livres");
   gridObserver?.disconnect();
   const c = $("#content");
 

@@ -73,7 +73,6 @@ function initAuth() {
     client_id: clientId, scope: SCOPE, callback: onToken,
   });
   $("#signin").onclick = () => state.tokenClient.requestAccessToken();
-  $("#signout").onclick = signOut;
 }
 
 let tokenWaiters = [];
@@ -181,6 +180,7 @@ async function onSignedIn() {
   await setupServiceWorker();
 
   if (isGuest()) { state.history = []; return go({ name: "review", id: settings.guest.id }, false); }
+  myName().then((n) => { $("#account-name").textContent = n; $("#account-avatar").textContent = initials(n); }).catch(() => {});
   const cached = await cacheGet("lib");
   if (cached?.rootId) state.rootId = cached.rootId;
   else state.rootId = (await api("/files/root", { fields: "id" })).id;
@@ -382,25 +382,94 @@ function go(view, push = true) {
 function goRoot(name) { state.history = []; go({ name }, false); }
 function back() { if (state.history.length) transition(() => { state.view = state.history.pop(); render(); }); }
 
+// Rubrique de la barre latérale à laquelle appartient chaque vue.
+const SECTION = {
+  library: "library", albums: "albums", album: "albums",
+  shares: "shares", "share-activity": "shares", review: "shares",
+  "music-albums": "music-albums", "music-album": "music-albums", songs: "music-albums",
+  books: "books", "books-authors": "books", "books-author": "books",
+};
+
+// opts : tabs [{ label, on, onClick }] (au centre), primary { label, onClick }
+// (bouton bleu), actions [{ label, onClick }], zoom, select, kicker (invité).
 function setHeader(title, subtitle = "", opts = {}) {
   $("#view-title").textContent = title;
   $("#view-subtitle").textContent = subtitle;
+  $("#view-kicker").hidden = !opts.kicker;
+  $("#view-kicker").innerHTML = opts.kicker || "";
+  $(".toolbar").classList.toggle("hero", !!opts.kicker);
   $("#btn-back").hidden = !state.history.length;
-  $("#segmented").hidden = !opts.segmented;
-  $("#zoom").hidden = !opts.zoom;
+  const seg = $("#segmented");
+  seg.hidden = !opts.tabs;
+  seg.innerHTML = "";
+  for (const t of opts.tabs || []) {
+    const b = document.createElement("button");
+    b.textContent = t.label;
+    b.className = t.on ? "on" : "";
+    if (t.key) b.dataset.mode = t.key;
+    b.onclick = t.onClick;
+    seg.appendChild(b);
+  }
+  $("#zoom-wrap").hidden = !opts.zoom;
   $("#btn-select").hidden = !opts.select;
   $("#view-actions").innerHTML = "";
-  for (const a of opts.actions || []) {
+  for (const a of [...(opts.actions || []), ...(opts.primary ? [{ ...opts.primary, primary: true }] : [])]) {
     const b = document.createElement("button");
-    b.className = "tb-btn";
-    b.textContent = a.label;
+    b.className = a.primary ? "btn-primary tb-primary" : "tb-btn";
+    b.innerHTML = a.primary ? `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">${a.icon || '<path d="M8 3v10M3 8h10"/>'}</svg><span>${esc(a.label)}</span>` : esc(a.label);
+    if (a.primary) b.setAttribute("aria-label", a.label);
     b.onclick = a.onClick;
     $("#view-actions").appendChild(b);
   }
-  document.querySelectorAll(".side-item[data-view]").forEach((b) =>
-    b.classList.toggle("active", b.dataset.view === (state.history[0]?.name || state.view.name)));
-  document.querySelectorAll(".segmented button").forEach((b) =>
-    b.classList.toggle("on", b.dataset.mode === state.libraryMode));
+  const section = SECTION[state.history[0]?.name || state.view.name];
+  document.querySelectorAll(".side-item[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === section));
+}
+
+// Onglets d'une rubrique : seulement à son premier niveau.
+function sectionTabs(list) {
+  if (state.history.length) return undefined;
+  return list.map(([name, label]) => ({ label, key: name, on: state.view.name === name, onClick: () => state.view.name !== name && goRoot(name) }));
+}
+
+// ---------- Petit menu (compte, options d'une carte) ----------
+
+let menuAnchor = null;
+function openMenu(anchor, items, { up } = {}) {
+  const m = $("#menu");
+  if (!m.hidden && menuAnchor === anchor) return closeMenu();
+  menuAnchor = anchor;
+  m.innerHTML = "";
+  for (const it of items) {
+    if (it === "-") { m.insertAdjacentHTML("beforeend", "<hr>"); continue; }
+    const b = document.createElement("button");
+    b.setAttribute("role", "menuitem");
+    b.textContent = it.label;
+    if (it.danger) b.className = "danger";
+    b.onclick = (e) => { e.stopPropagation(); closeMenu(); it.onClick(); };
+    m.appendChild(b);
+  }
+  m.hidden = false;
+  const r = anchor.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, up ? r.left : r.right - w));
+  const top = up || r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 6) : r.bottom + 6;
+  Object.assign(m.style, { left: left + "px", top: top + "px" });
+  setTimeout(() => document.addEventListener("pointerdown", outsideMenu), 0);
+}
+function outsideMenu(e) { if (!e.target.closest("#menu") && !menuAnchor?.contains(e.target)) closeMenu(); }
+function closeMenu() {
+  $("#menu").hidden = true;
+  menuAnchor = null;
+  document.removeEventListener("pointerdown", outsideMenu);
+}
+
+function openAccountMenu() {
+  openMenu($("#account"), [
+    { label: "Réglages…", onClick: openSettings },
+    { label: "Dossiers suivis", onClick: () => goRoot("sources") },
+    { label: "Parcourir Google Drive", onClick: () => goRoot("drive") },
+    "-",
+    { label: "Se déconnecter", onClick: signOut },
+  ], { up: true });
 }
 
 function render() {
@@ -470,9 +539,11 @@ function photoGrid(container, list, { byMonth } = {}) {
 
 function renderLibrary() {
   const list = state.photos.filter((p) => matches(p.name));
-  setHeader("Photothèque", plural(list.length, "photo", "photos"), { segmented: true, zoom: state.libraryMode !== "years", select: state.libraryMode !== "years" });
+  const tabs = [["years", "Années"], ["months", "Mois"], ["all", "Toutes les photos"]].map(([key, label]) => ({
+    label, key, on: state.libraryMode === key, onClick: () => { state.libraryMode = key; render(); } }));
+  setHeader("Photos", plural(list.length, "photo", "photos"), { tabs, zoom: state.libraryMode !== "years", select: state.libraryMode !== "years" });
   const c = $("#content");
-  if (!state.photos.length) { c.innerHTML = empty($("#sync-status").textContent.includes("…") ? "Chargement de tes photos…" : "Aucune photo dans tes sources. Ajoute des dossiers dans Sources."); return; }
+  if (!state.photos.length) { c.innerHTML = empty($("#sync-status").textContent.includes("…") ? "Chargement de tes photos…" : "Aucune photo dans tes dossiers suivis. Ajoute-en depuis le menu de ton compte, en bas à gauche."); return; }
 
   if (state.libraryMode === "years") {
     gridObserver?.disconnect();
@@ -519,7 +590,7 @@ function bindAlbumCards(c, albums, onOpen) {
 function renderAlbums() {
   const albums = state.photoAlbums.filter((a) => matches(a.name + " " + a.path));
   setHeader("Albums", plural(albums.length, "album", "albums"), {
-    zoom: true, actions: [{ label: "+ Nouvel album", onClick: () => createAlbum(sourceIds("photos")[0] || state.rootId) }],
+    zoom: true, primary: { label: "Nouvel album", onClick: () => createAlbum(sourceIds("photos")[0] || state.rootId) },
   });
   const c = $("#content");
   gridObserver?.disconnect();
@@ -533,17 +604,21 @@ function renderAlbum({ id }) {
   const title = id === state.rootId ? "Non classées" : folder.name;
   const all = (state.photosByFolder.get(id) || []).filter((p) => !(settings.hideSmall && isSmall(p)));
   const list = all.filter((p) => matches(p.name));
-  const actions = id !== "_" && id !== state.rootId ? [{ label: "Revue", onClick: () => go({ name: "review", id }) },
-    { label: folder.shared ? "🔗 Partagé…" : "Partager…", onClick: () => openInvite(folder) }] : [];
-  setHeader(title, [plural(list.length, "photo", "photos"), folderPath(id)].filter(Boolean).join(" · "), { zoom: true, select: true, actions });
+  const own = id !== "_" && id !== state.rootId;
+  setHeader(title, [plural(list.length, "photo", "photos"), folderPath(id)].filter(Boolean).join(" · "), { zoom: true, select: true,
+    actions: own ? [{ label: "Commentaires", onClick: () => go({ name: "review", id }) }] : [],
+    primary: own ? { label: folder.shared ? "Partagé" : "Partager…", icon: SHARE_ICON, onClick: () => openInvite(folder) } : null });
   state.currentGrid = photoGrid($("#content"), list, { byMonth: false });
 }
 
 // ---------- Musique ----------
 
+const MUSIC_TABS = [["music-albums", "Albums"], ["songs", "Morceaux"]];
+const SHARE_ICON = '<path d="M8 10V1.5M5 4.5l3-3 3 3M4 7H3v7.5h10V7h-1"/>';
+
 function renderMusicAlbums() {
   const albums = state.musicAlbums.filter((a) => matches(a.name + " " + a.path));
-  setHeader("Albums", plural(albums.length, "album", "albums"), { zoom: true });
+  setHeader("Musique", plural(albums.length, "album", "albums"), { zoom: true, tabs: sectionTabs(MUSIC_TABS) });
   const c = $("#content");
   gridObserver?.disconnect();
   c.innerHTML = albums.length ? albumCards(albums, { kind: "tracks" }) : empty("Aucune musique trouvée.");
@@ -580,7 +655,7 @@ function renderMusicAlbum({ id }) {
 
 function renderSongs() {
   const list = state.musicAlbums.flatMap((a) => a.tracks).filter((t) => matches(t.title + " " + t.album.name));
-  setHeader("Morceaux", plural(list.length, "morceau", "morceaux"));
+  setHeader("Musique", plural(list.length, "morceau", "morceaux"), { tabs: sectionTabs(MUSIC_TABS) });
   gridObserver?.disconnect();
   const c = $("#content");
   c.innerHTML = list.length ? trackRows(list) : empty("Aucun morceau.");
@@ -721,7 +796,9 @@ function setupLightbox() {
 
 function setupUI() {
   document.querySelectorAll(".side-item[data-view]").forEach((b) => (b.onclick = () => goRoot(b.dataset.view)));
-  document.querySelectorAll(".segmented button").forEach((b) => (b.onclick = () => { state.libraryMode = b.dataset.mode; render(); }));
+  $("#account").onclick = openAccountMenu;
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#menu").hidden) closeMenu(); });
+  addEventListener("resize", closeMenu);
   $("#btn-back").onclick = back;
   const zoom = $("#zoom");
   const applyZoom = () => document.documentElement.style.setProperty("--tile", zoom.value + "px");
@@ -730,7 +807,7 @@ function setupUI() {
   zoom.oninput = () => { applyZoom(); try { localStorage.setItem("mcm-zoom", zoom.value); } catch {} };
   let pending = 0, frame = 0;
   $("#content").addEventListener("wheel", (e) => {
-    if (!e.ctrlKey || zoom.hidden) return;
+    if (!e.ctrlKey || $("#zoom-wrap").hidden) return;
     e.preventDefault();
     pending += e.deltaY;
     frame ||= requestAnimationFrame(() => {

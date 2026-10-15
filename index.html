@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1e1e1e">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=18">
   <script src="config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -26,51 +26,36 @@
   <!-- Application -->
   <div id="app" class="app" hidden>
     <aside class="sidebar">
-      <div class="sidebar-scroll">
-        <div class="side-title">Photos</div>
-        <button class="side-item active" data-view="library"><span class="ico">🖼️</span>Photothèque</button>
-        <button class="side-item" data-view="albums"><span class="ico">📚</span>Albums</button>
-
-        <div class="side-title">Partages</div>
-        <button class="side-item" data-view="shares"><span class="ico">🔗</span>Dossiers partagés<span id="shares-count" class="side-count" hidden></span></button>
-        <button class="side-item" data-view="share-activity"><span class="ico">💬</span>Activité</button>
-
-        <div class="side-title">Musique</div>
-        <button class="side-item" data-view="music-albums"><span class="ico">💿</span>Albums</button>
-        <button class="side-item" data-view="songs"><span class="ico">🎵</span>Morceaux</button>
-
-        <div class="side-title">Livres</div>
-        <button class="side-item" data-view="books"><span class="ico">📖</span>Bibliothèque</button>
-        <button class="side-item" data-view="books-authors"><span class="ico">✍️</span>Auteurs</button>
-
-        <div class="side-title">Google Drive</div>
-        <button class="side-item" data-view="drive"><span class="ico">📁</span>Tous les dossiers</button>
-        <button class="side-item" data-view="sources"><span class="ico">🗂️</span>Sources</button>
-      </div>
-      <div class="sidebar-foot">
-        <div id="sync-status" class="sync-status"></div>
-        <button id="btn-settings" class="side-item"><span class="ico">⚙️</span>Réglages</button>
-        <button id="signout" class="side-item"><span class="ico">↩︎</span>Déconnexion</button>
-      </div>
+      <nav class="side-nav" aria-label="Navigation">
+        <button class="side-item" data-view="library"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="#0a66d8" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M1.5 11l3.5-3.5 3 3 2-2 4.5 4"/></svg><span class="lbl">Photos</span></button>
+        <button class="side-item" data-view="albums"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="#0a66d8" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1.2"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1.2"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1.2"/><rect x="9" y="9" width="5.5" height="5.5" rx="1.2"/></svg><span class="lbl">Albums</span></button>
+        <button class="side-item" data-view="shares"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="#0a66d8" stroke-width="1.4" aria-hidden="true"><circle cx="5.5" cy="6" r="2.5"/><circle cx="11" cy="6.5" r="2"/><path d="M1.5 13.5c.6-2.2 2.2-3.3 4-3.3s3.4 1.1 4 3.3M10 10.4c1.8-.2 3.6.8 4.5 3.1"/></svg><span class="lbl">Partagés</span><span id="shares-count" class="side-count" hidden></span></button>
+        <button class="side-item" data-view="music-albums"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="#e5484d" stroke-width="1.4" aria-hidden="true"><path d="M6 12.5V3.5l8-1.5v9"/><circle cx="4" cy="12.5" r="2"/><circle cx="12" cy="11" r="2"/></svg><span class="lbl">Musique</span></button>
+        <button class="side-item" data-view="books"><svg class="ico" viewBox="0 0 16 16" fill="none" stroke="#e8890c" stroke-width="1.4" aria-hidden="true"><path d="M2 3c2-.8 4-.8 6 .6 2-1.4 4-1.4 6-.6v10c-2-.8-4-.8-6 .6-2-1.4-4-1.4-6-.6z"/><path d="M8 3.6v10"/></svg><span class="lbl">Livres</span></button>
+      </nav>
+      <button id="account" class="account" aria-label="Compte, réglages et dossiers suivis" aria-haspopup="menu">
+        <span id="account-avatar" class="avatar">·</span>
+        <span class="account-text"><b id="account-name">Mon compte</b><span id="sync-status" class="sync-status"></span></span>
+        <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>
+      </button>
     </aside>
 
     <main class="main">
       <header class="toolbar">
-        <button id="btn-back" class="tb-btn" hidden title="Retour">‹</button>
-        <div class="tb-title">
-          <h1 id="view-title"></h1>
-          <div id="view-subtitle" class="tb-sub"></div>
+        <div class="tb-left">
+          <button id="btn-back" class="tb-btn tb-icon" hidden title="Retour" aria-label="Retour"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg></button>
+          <div class="tb-title">
+            <div id="view-kicker" class="tb-kicker" hidden></div>
+            <h1 id="view-title"></h1>
+            <div id="view-subtitle" class="tb-sub"></div>
+          </div>
         </div>
-        <div id="segmented" class="segmented" hidden>
-          <button data-mode="years">Années</button>
-          <button data-mode="months">Mois</button>
-          <button data-mode="all">Toutes les photos</button>
-        </div>
+        <div id="segmented" class="segmented" role="group" aria-label="Affichage" hidden></div>
         <div class="tb-actions">
-          <input id="zoom" class="zoom" type="range" min="90" max="320" value="170" title="Taille des vignettes">
-          <span id="view-actions"></span>
+          <label class="zoom-wrap" id="zoom-wrap"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 8h10"/></svg><input id="zoom" class="zoom" type="range" min="90" max="320" value="170" aria-label="Taille des vignettes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M3 8h10M8 3v10"/></svg></label>
           <button id="btn-select" class="tb-btn">Sélectionner</button>
-          <input id="search" type="search" placeholder="Rechercher">
+          <span id="view-actions"></span>
+          <label class="search"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg><input id="search" type="search" placeholder="Rechercher" aria-label="Rechercher"></label>
         </div>
       </header>
       <div id="content" class="content"></div>
@@ -126,19 +111,21 @@
     </div>
   </div>
 
-  <!-- Réglages : dossiers sources -->
+  <!-- Réglages -->
   <div id="settings" class="modal" hidden>
     <div class="modal-box">
       <h3>Réglages</h3>
       <label class="check"><input type="checkbox" id="set-hide-small"> Masquer les petites images (icônes, logos de moins de 400 px)</label>
-      <p class="muted">Seuls les dossiers choisis dans Sources sont chargés.</p>
+      <p class="muted">Seuls les dossiers suivis sont chargés dans Photos, Musique et Livres.</p>
       <div class="modal-actions">
-        <button id="settings-sources">Gérer les sources…</button>
+        <button id="settings-sources">Dossiers suivis…</button>
         <span class="spacer"></span>
         <button id="settings-close" class="btn-primary">Terminé</button>
       </div>
     </div>
   </div>
+
+  <div id="menu" class="menu" role="menu" hidden></div>
 
   <div id="toast" class="toast" hidden></div>
 
@@ -146,23 +133,27 @@
   <div id="rv" class="rv" hidden>
     <div class="rv-stage">
       <div class="rv-top">
-        <button id="rv-close" class="rv-round" title="Fermer (Échap)">✕</button>
+        <button id="rv-close" class="rv-round" title="Fermer (Échap)" aria-label="Fermer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button>
         <div id="rv-title" class="rv-title"></div>
-        <span></span>
+        <a id="rv-download" class="rv-round ghost" title="Télécharger" aria-label="Télécharger" target="_blank" rel="noopener"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M8 2v8.5M5 7.5l3 3 3-3M3 13.5h10"/></svg></a>
       </div>
-      <button id="rv-prev" class="rv-round rv-nav prev" title="Précédente (←)">‹</button>
-      <div id="rv-media" class="rv-media"></div>
-      <button id="rv-next" class="rv-round rv-nav next" title="Suivante (→)">›</button>
+      <div class="rv-body">
+        <button id="rv-prev" class="rv-round rv-nav prev" title="Précédente (←)" aria-label="Précédente"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 3L5 8l5 5"/></svg></button>
+        <div id="rv-media" class="rv-media"></div>
+        <button id="rv-next" class="rv-round rv-nav next" title="Suivante (→)" aria-label="Suivante"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3l5 5-5 5"/></svg></button>
+      </div>
+      <div id="rv-strip" class="rv-strip"></div>
     </div>
-    <aside class="rv-side">
-      <div class="rv-label">Ta pastille</div>
-      <div id="rv-tags" class="rv-tags"></div>
-      <div id="rv-tagged" class="rv-tagged"></div>
-      <div class="rv-label">Commentaires</div>
+    <aside class="rv-side" aria-label="Réactions">
+      <div class="rv-tagbox">
+        <div class="rv-label">Pastille</div>
+        <div id="rv-tags" class="rv-tags"></div>
+        <div id="rv-tagged" class="rv-tagged"></div>
+      </div>
       <div id="rv-comments" class="rv-comments"></div>
       <form id="rv-form" class="rv-form">
-        <textarea id="rv-input" rows="2" placeholder="Ajouter un commentaire…"></textarea>
-        <button class="btn-primary">Envoyer</button>
+        <textarea id="rv-input" rows="1" placeholder="Ajouter un commentaire…" aria-label="Ajouter un commentaire"></textarea>
+        <button class="rv-send" aria-label="Envoyer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
       </form>
     </aside>
   </div>
@@ -232,11 +223,11 @@
     <audio id="audio" controls preload="none"></audio>
   </footer>
 
-  <script src="app.js?v=17"></script>
-  <script src="folders.js?v=17"></script>
-  <script src="sources.js?v=17"></script>
-  <script src="books.js?v=17"></script>
-  <script src="review.js?v=17"></script>
-  <script src="shares.js?v=17"></script>
+  <script src="app.js?v=18"></script>
+  <script src="folders.js?v=18"></script>
+  <script src="sources.js?v=18"></script>
+  <script src="books.js?v=18"></script>
+  <script src="review.js?v=18"></script>
+  <script src="shares.js?v=18"></script>
 </body>
 </html>

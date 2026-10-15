@@ -146,14 +146,27 @@ async function myName() {
     if (!name) throw new Error("cancel");
     settings.guest.name = name;
     saveSettings();
+    drawGuestMe();
   }
   return settings.guest.name;
 }
 
-function askName() {
+// « Tu es Léa · Changer », en haut à droite chez l'invité.
+function drawGuestMe() {
+  const box = $(".guest-me");
+  if (!box) return;
+  const name = settings.guest?.name;
+  box.innerHTML = `${name ? `Tu es <b>${esc(name)}</b>` : "Pas encore de prénom"}<button class="tb-btn soft">${name ? "Changer" : "Choisir"}</button>`;
+  box.querySelector("button").onclick = async () => {
+    const v = await askName(name);
+    if (v) { settings.guest.name = v; saveSettings(); drawGuestMe(); }
+  };
+}
+
+function askName(current = "") {
   return new Promise((resolve) => {
     const input = $("#name-input");
-    input.value = "";
+    input.value = current;
     $("#name-ask").hidden = false;
     input.focus();
     const done = (v) => { $("#name-ask").hidden = true; resolve(v); };
@@ -231,12 +244,20 @@ function drawReview(id, entry) {
   const owner = meta.owners?.[0];
   const sub = [photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
     owner && !owner.me ? `partagé par ${owner.displayName}` : ""].filter(Boolean).join(" · ");
-  const actions = [];
-  if (isGuest() && !state.history.length) actions.push({ label: "Quitter", onClick: leaveGuest });
-  else if (!isGuest() && id === review.root) actions.push(
-    { label: "Activité", onClick: () => go({ name: "share-activity", id }) },
-    { label: "Partager…", onClick: () => openInvite({ id, name: meta.name }) });
-  setHeader(meta.name, sub, { zoom: true, actions });
+  const guestHome = isGuest() && !state.history.length;
+  if (guestHome) {
+    const who = owner?.displayName?.split(" ")[0];
+    setHeader(meta.name, [photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos")].filter(Boolean).join(" · ")
+      + (items.length ? " · Ouvre une photo pour poser une pastille ou laisser un mot." : ""), {
+      kicker: who ? `<span class="avatar sm">${esc(initials(who))}</span>${esc(who)} a partagé ce dossier avec toi` : "Dossier partagé avec toi",
+      actions: [{ label: "Quitter", onClick: leaveGuest }],
+    });
+    $("#view-actions").insertAdjacentHTML("afterbegin", `<span class="guest-me"></span>`);
+    drawGuestMe();
+  } else if (!isGuest() && id === review.root) {
+    setHeader(meta.name, sub, { zoom: true, actions: [{ label: "Activité", onClick: () => go({ name: "share-activity", id }) }],
+      primary: { label: "Partager…", icon: SHARE_ICON, onClick: () => openInvite({ id, name: meta.name }) } });
+  } else setHeader(meta.name, sub, { zoom: true });
 
   const c = $("#content");
   const visible = items.filter((f) => matches(f.name) && passesFilter(f.id));
@@ -256,7 +277,7 @@ function drawReview(id, entry) {
     tile.className = "rv-tile";
     tile.dataset.id = f.id;
     tile.innerHTML = `<img alt="" loading="lazy"><span class="rv-dots"></span>
-      ${f.video ? `<span class="rv-badge">▶ ${duration(f)}</span>` : ""}<span class="rv-count"></span>`;
+      ${f.video ? `<span class="rv-badge">▶ ${duration(f)}</span>` : ""}<span class="rv-count" hidden></span>`;
     setThumb(tile.querySelector("img"), f, 400);
     tile.onclick = () => { review.list = visible; openViewer(i, tile.querySelector("img")); };
     frag.appendChild(tile);
@@ -297,11 +318,10 @@ function drawFilters(items) {
     keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
   }
   const chip = (key, html) => `<button class="rv-chip ${review.filter === key ? "on" : ""}" data-key="${key ?? ""}">${html}</button>`;
-  box.innerHTML = !counts.size && !noted && !review.filter ? "" : chip(null, "Tout") +
-    (noted ? chip("notes", `💬 Commentées · ${noted}`) : "") +
+  box.innerHTML = !items.length ? "" : chip(null, `Tout · ${items.length}`) + chip("none", `À voir · ${none}`) +
+    (noted || review.filter === "notes" ? chip("notes", `Commentées · ${noted}`) : "") +
     TAGS.filter((t) => counts.has(t.key) || review.filter === t.key)
-      .map((t) => chip(t.key, `<i style="background:${t.color}"></i>${counts.get(t.key) || 0}`)).join("") +
-    chip("none", `Sans pastille · ${none}`);
+      .map((t) => chip(t.key, `<i style="background:${t.color}"></i>${counts.get(t.key) || 0}`)).join("");
   box.querySelectorAll(".rv-chip").forEach((b) => (b.onclick = () => {
     review.filter = b.dataset.key || null;
     render();
@@ -314,8 +334,9 @@ function refreshTile(id) {
   if (tile) {
     tile.querySelector(".rv-dots").innerHTML = [...new Map(tagsOf(id).map((x) => [x.tag.key, x.tag])).values()]
       .map((t) => `<i style="background:${t.color}"></i>`).join("");
-    const n = notesOf(id).length;
-    tile.querySelector(".rv-count").textContent = n ? `💬 ${n}` : "";
+    const n = notesOf(id).length, count = tile.querySelector(".rv-count");
+    count.textContent = n ? plural(n, "mot", "mots") : "";
+    count.hidden = !n;
   }
   const v = state.view;
   if (v.name === "review") { const e = review.folders.get(v.id); if (e) drawFilters(e.items); }
@@ -372,8 +393,30 @@ function showItem(i) {
       for (const d of [1, -1]) { const g = review.list[(review.index + d + n) % n]; if (!g.video) loadBig(g); }
     });
   }
-  $("#rv-title").innerHTML = `<b>${esc(f.name)}</b><br>${esc(f.date.toLocaleDateString("fr-FR", { dateStyle: "long" }))} · ${review.index + 1} / ${n}`;
+  $("#rv-title").innerHTML = `<b>${esc(f.name)}</b><span>${esc(f.date.toLocaleDateString("fr-FR", { dateStyle: "long" }))} · ${
+    esc(f.date.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }))} · ${review.index + 1} / ${n}</span>`;
+  const dl = $("#rv-download");
+  dl.href = driveUrl(f.id);
+  dl.download = f.name;
+  drawStrip();
   drawSide();
+}
+
+// Bande de vignettes sous la photo : les voisines, la courante au centre.
+function drawStrip() {
+  const strip = $("#rv-strip"), n = review.list.length;
+  if (n < 2) { strip.innerHTML = ""; return; }
+  const span = Math.min(n, 15), from = Math.max(0, Math.min(n - span, review.index - 7));
+  strip.innerHTML = "";
+  for (let k = from; k < from + span; k++) {
+    const b = document.createElement("button");
+    b.className = "rv-thumb" + (k === review.index ? " on" : "");
+    b.setAttribute("aria-label", review.list[k].name);
+    b.innerHTML = "<img alt=\"\">";
+    setThumb(b.firstChild, review.list[k], 120);
+    b.onclick = () => showItem(k);
+    strip.appendChild(b);
+  }
 }
 
 function drawSide() {
@@ -385,15 +428,21 @@ function drawSide() {
     `<button class="rv-swatch none ${mine ? "" : "on"}" data-key="" title="Aucune pastille (0)"></button>`;
   $("#rv-tags").querySelectorAll(".rv-swatch").forEach((b) => (b.onclick = () => setTag(f, b.dataset.key || null)));
 
-  const others = tagsOf(f.id).filter((x) => !x.c.author?.me);
-  $("#rv-tagged").innerHTML = others.map((x) =>
-    `<span><i style="background:${x.tag.color}"></i>${esc(x.c.author?.displayName || "Quelqu'un")}</span>`).join("");
+  // « Vert · posée par Léa et toi »
+  const byTag = new Map();
+  for (const x of tagsOf(f.id)) {
+    if (!byTag.has(x.tag.key)) byTag.set(x.tag.key, { tag: x.tag, who: [] });
+    byTag.get(x.tag.key).who.push(x.c.author?.me ? "toi" : x.c.author?.displayName || "quelqu'un");
+  }
+  const list = (w) => w.length > 1 ? `${w.slice(0, -1).join(", ")} et ${w.at(-1)}` : w[0];
+  $("#rv-tagged").innerHTML = [...byTag.values()].map(({ tag, who }) =>
+    `<span><i style="background:${tag.color}"></i>${esc(tag.label.replace("Pastille ", "").replace(/^./, (c) => c.toUpperCase()))} · posée par ${esc(list(who))}</span>`).join("");
 
   const notes = notesOf(f.id);
   $("#rv-comments").innerHTML = !review.ready ? `<p class="muted">Chargement…</p>`
     : review.error ? `<p class="muted">Commentaires indisponibles : ${esc(review.error)}.</p>`
     : notes.length ? notes.map((c) => commentHtml(c)).join("")
-    : `<p class="muted rv-empty">Pas encore de commentaire.</p>`;
+    : `<p class="muted rv-empty">Pas encore de commentaire.<br>Écris le premier ci-dessous.</p>`;
   $("#rv-comments").querySelectorAll("[data-reply]").forEach((b) => (b.onclick = () => {
     review.replyTo = notes.find((c) => c.id === b.dataset.reply);
     $("#rv-input").placeholder = `Répondre à ${review.replyTo.author?.displayName || "ce commentaire"}…`;
@@ -404,13 +453,18 @@ function drawSide() {
 }
 
 function commentHtml(c) {
-  const when = (d) => new Date(d).toLocaleString("fr-FR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  const one = (x, cls) => `<div class="${cls}"><div class="rv-meta"><b>${esc(x.author?.displayName || "Quelqu'un")}</b> · ${when(x.createdTime)}
+  const when = (d) => ago(d);
+  const one = (x, cls) => {
+    const name = x.author?.me ? "Toi" : x.author?.displayName || "Quelqu'un";
+    const hue = [...(x.author?.displayName || "?")].reduce((h, ch) => h + ch.charCodeAt(0), 0) % 360;
+    return `<div class="${cls}"><span class="avatar" style="--h:${hue}">${esc(initials(x.author?.displayName || "?"))}</span>
+    <div class="rv-bubble"><div class="rv-meta"><b>${esc(name)}</b><span>${when(x.createdTime)}</span>
     ${x.author?.me && cls === "rv-comment" ? `<button class="rv-link" data-del="${x.id}">Supprimer</button>` : ""}</div>
-    <div class="rv-text">${esc(x.content || "")}</div></div>`;
+    <div class="rv-text">${esc(x.content || "")}</div></div></div>`;
+  };
   return `<div class="rv-thread">${one(c, "rv-comment")}
     ${(c.replies || []).filter((r) => !r.deleted).map((r) => one(r, "rv-reply")).join("")}
-    <button class="rv-link" data-reply="${c.id}">Répondre</button></div>`;
+    <button class="rv-link rv-answer" data-reply="${c.id}">Répondre</button></div>`;
 }
 
 // Change sa propre pastille : on modifie, crée ou supprime son commentaire-pastille.
@@ -447,6 +501,7 @@ async function sendComment(e) {
     if (review.replyTo) review.replyTo.replies.push(asComment(comment));
     else review.comments.set(f.id, [...commentsOf(f.id), asComment(comment)]);
     input.value = "";
+    input.style.height = "";
     review.replyTo = null;
   } catch (err) { if (err.message !== "cancel") { console.error(err); toast("Impossible d'envoyer le commentaire"); } }
   input.disabled = false;
@@ -533,7 +588,9 @@ window.addEventListener("load", () => {
   $("#rv-prev").onclick = () => showItem(review.index - 1);
   $("#rv-next").onclick = () => showItem(review.index + 1);
   $("#rv-form").onsubmit = sendComment;
-  $("#rv-input").onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendComment(e); };
+  // Entrée envoie, Maj+Entrée va à la ligne ; le champ grandit avec le texte.
+  $("#rv-input").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) sendComment(e); };
+  $("#rv-input").oninput = (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px"; };
   $("#invite-close").onclick = () => ($("#invite").hidden = true);
   document.addEventListener("keydown", (e) => {
     if ($("#rv").hidden) return;

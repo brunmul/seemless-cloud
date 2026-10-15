@@ -63,6 +63,7 @@ async function fillShare(s) {
 
 function shareReady(s) {
   updateSharesBadge();
+  if (!state.history.length && ["shares", "share-activity"].includes(state.view.name)) updateShareTabs();
   if (state.view.name !== "shares") return;
   const card = document.querySelector(`.sh-card[data-id="${s.folder.id}"]`);
   if (!card) return;
@@ -124,14 +125,23 @@ function avatars(people) {
     people.length > 4 ? `<i class="more">+${people.length - 4}</i>` : ""}</span>`;
 }
 
-// ---------- Vue « Dossiers partagés » ----------
+// ---------- Vue « Partagés » ----------
+
+const totalNew = () => (shares.list || []).reduce((t, s) => t + newCount(s), 0);
+const shareTabs = () => sectionTabs([["shares", "Dossiers"], ["share-activity", totalNew() ? `Activité · ${totalNew()} nouvelle${totalNew() > 1 ? "s" : ""}` : "Activité"]]);
+const sharePrimary = { label: "Partager un dossier", onClick: () => openSharePicker() };
+// Le nombre de nouveautés de l'onglet Activité suit le remplissage des cartes.
+function updateShareTabs() {
+  const b = $('#segmented button[data-mode="share-activity"]');
+  const t = shareTabs()?.[1];
+  if (b && t) b.textContent = t.label;
+}
 
 async function renderShares() {
   const c = $("#content");
   gridObserver?.disconnect();
-  const actions = [{ label: "+ Nouveau partage…", onClick: openSharePicker }];
-  setHeader("Dossiers partagés", shares.list ? "" : "Chargement…", { actions });
-  if (!shares.list) c.innerHTML = `<div class="sh-grid">${`<div class="sh-card skel"><div class="sh-cover"></div><div class="sh-body"><b></b><span></span></div></div>`.repeat(3)}</div>`;
+  setHeader("Partagés", shares.list ? "" : "Chargement…", { tabs: shareTabs(), primary: sharePrimary });
+  if (!shares.list) c.innerHTML = `<div class="sh-grid">${`<div class="sh-card skel"><div class="sh-cover"></div><div class="sh-info"><b></b><span></span></div></div>`.repeat(3)}</div>`;
   else drawShares();
   try { await loadShares(); }
   catch (e) { console.error(e); if (state.view.name === "shares") c.innerHTML = empty("Impossible de lire tes partages : " + esc(e.message)); return; }
@@ -142,13 +152,11 @@ function drawShares() {
   const c = $("#content");
   const list = shares.list.filter((s) => matches(s.folder.name))
     .sort((a, b) => (lastActivity(b) || b.folder.modifiedTime).localeCompare(lastActivity(a) || a.folder.modifiedTime));
-  const total = shares.list.reduce((t, s) => t + s.comments.length, 0);
-  setHeader("Dossiers partagés", shares.list.length
-    ? `${plural(shares.list.length, "dossier", "dossiers")} · ${plural(total, "réaction", "réactions")} des invités` : "",
-    { actions: [{ label: "+ Nouveau partage…", onClick: openSharePicker }] });
+  setHeader("Partagés", shares.list.length ? plural(shares.list.length, "dossier partagé", "dossiers partagés") : "",
+    { tabs: shareTabs(), primary: sharePrimary });
   if (!list.length) {
     c.innerHTML = empty(shares.list.length ? "Aucun dossier ne correspond." :
-      "Aucun dossier partagé pour l'instant.<br><br><button id=\"sh-first\" class=\"btn-primary\">Partager un dossier…</button>");
+      "Aucun dossier partagé pour l'instant.<br>Partage un dossier : tes invités pourront commenter et poser des pastilles, sans compte Google.<br><br><button id=\"sh-first\" class=\"btn-primary\">Partager un dossier…</button>");
     $("#sh-first")?.addEventListener("click", openSharePicker);
     return;
   }
@@ -156,7 +164,7 @@ function drawShares() {
   c.querySelectorAll(".sh-card").forEach(bindCard);
 }
 
-const coverOf = (s) => (s.items.length ? s.items : s.cover || []).slice(0, 4);
+const coverOf = (s) => (s.items.length ? s.items : s.cover || []).slice(0, 3);
 
 function bindCard(card) {
   const s = shares.list.find((x) => x.folder.id === card.dataset.id);
@@ -164,10 +172,14 @@ function bindCard(card) {
     const f = coverOf(s).find((x) => x.id === img.dataset.thumb);
     if (f) setThumb(img, f, 400);
   });
-  card.querySelector(".sh-open").onclick = () => openShare(s);
-  card.querySelector("[data-act=copy]").onclick = () => copyShareLink(s.folder);
-  card.querySelector("[data-act=activity]").onclick = () => go({ name: "share-activity", id: s.folder.id });
-  card.querySelector("[data-act=stop]").onclick = () => stopShare(s);
+  card.querySelectorAll(".sh-open").forEach((b) => (b.onclick = () => openShare(s)));
+  const more = card.querySelector(".sh-more");
+  more.onclick = () => openMenu(more, [
+    { label: "Copier le lien d'invitation", onClick: () => copyShareLink(s.folder) },
+    { label: "Voir l'activité", onClick: () => go({ name: "share-activity", id: s.folder.id }) },
+    "-",
+    { label: "Arrêter le partage", danger: true, onClick: () => stopShare(s) },
+  ]);
 }
 
 function shareCard(s) {
@@ -176,24 +188,21 @@ function shareCard(s) {
   const photos = s.items.filter((f) => !f.mimeType.startsWith("video/")).length, videos = s.items.length - photos;
   const cover = coverOf(s);
   const last = lastActivity(s);
+  const meta = !s.loaded ? "Chargement…" : [photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
+    s.subs.length && plural(s.subs.length, "sous-dossier", "sous-dossiers"), last ? ago(last) : s.comments.length || s.error ? "" : "pas encore de réaction"]
+    .filter(Boolean).join(" · ") || "Vide";
   return `<div class="sh-card ${s.loaded ? "" : "pending"}" data-id="${s.folder.id}">
-    <button class="sh-open">
-      <div class="sh-cover n${cover.length}">${cover.map((f) => `<img data-thumb="${f.id}" alt="" loading="lazy">`).join("") || "<span>📁</span>"}
-        ${fresh ? `<span class="sh-new">${fresh} nouveau${fresh > 1 ? "x" : ""}</span>` : ""}</div>
-      <div class="sh-body">
+    <button class="sh-open sh-cover n${cover.length}" aria-label="Ouvrir ${esc(s.folder.name)}">${cover.map((f) => `<img data-thumb="${f.id}" alt="" loading="lazy">`).join("")}
+      ${fresh ? `<span class="sh-new">${fresh} nouveau${fresh > 1 ? "x" : ""}</span>` : ""}</button>
+    <div class="sh-info">
+      <button class="sh-open sh-text">
         <b>${esc(s.folder.name)}</b>
-        <span class="muted">${[photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos"),
-          s.subs.length && plural(s.subs.length, "sous-dossier", "sous-dossiers")].filter(Boolean).join(" · ") || (s.loaded ? "Vide" : "&nbsp;")}</span>
-        <span class="sh-stats">${TAGS.filter((t) => tags.has(t.key)).map((t) => `<span><i style="background:${t.color}"></i>${tags.get(t.key)}</span>`).join("")}
-          ${notes ? `<span>💬 ${notes}</span>` : ""}${!s.loaded ? `<span class="muted">Chargement…</span>` : !tags.size && !notes ? `<span class="muted">${s.error ? `<span title="${esc(s.error)}">Commentaires indisponibles</span>` : "Pas encore de réaction"}</span>` : ""}</span>
-        <span class="sh-foot">${avatars(people)}<span class="muted">${last ? ago(last) : ""}</span></span>
-      </div>
-    </button>
-    <div class="sh-actions">
-      <button data-act="copy" title="Copier le lien d'invitation">Copier le lien</button>
-      <button data-act="activity" title="Voir l'activité">Activité</button>
-      <span class="spacer"></span>
-      <button data-act="stop" class="danger" title="Désactiver le lien">Arrêter</button>
+        <span class="muted">${meta}</span>
+        <span class="sh-stats">${TAGS.filter((t) => tags.has(t.key)).map((t) => `<span><i style="background:${t.color}"></i>${tags.get(t.key)}</span>`).join("")}${
+          notes ? `<span>${plural(notes, "mot", "mots")}</span>` : ""}${s.error ? `<span class="muted" title="${esc(s.error)}">Commentaires indisponibles</span>` : ""}</span>
+      </button>
+      ${avatars(people)}
+      <button class="sh-more" aria-label="Options de ${esc(s.folder.name)}" aria-haspopup="menu"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg></button>
     </div>
   </div>`;
 }
@@ -292,7 +301,7 @@ async function renderSharePicker() {
 async function renderShareActivity({ id }) {
   const c = $("#content");
   gridObserver?.disconnect();
-  setHeader("Activité", "Chargement…");
+  setHeader(id ? "Activité" : "Partagés", "Chargement…", id ? {} : { tabs: shareTabs(), primary: sharePrimary });
   if (!shares.list) c.innerHTML = `<div class="empty">Chargement de l'activité…</div>`;
   try { await loadShares(); await shares.filling; }
   catch (e) { console.error(e); c.innerHTML = empty("Impossible de lire l'activité : " + esc(e.message)); return; }
@@ -301,12 +310,11 @@ async function renderShareActivity({ id }) {
   const events = scope.flatMap((s) => s.comments.map((cm) => ({ ...cm, s })))
     .filter((e) => matches(e.name + " " + e.text + " " + e.s.folder.name))
     .sort((a, b) => b.at.localeCompare(a.at));
-  const title = id ? scope[0]?.folder.name || "Activité" : "Activité";
+  const title = id ? scope[0]?.folder.name || "Activité" : "Partagés";
   const filter = state.activityFilter || "all";
   const shown = events.filter((e) => filter === "all" || (filter === "guests" ? !e.me : TAGS.some((t) => e.text === tagText(t))));
-  setHeader(title, `${plural(events.filter((e) => !e.me).length, "réaction", "réactions")} des invités`, {
-    actions: id ? [{ label: "Ouvrir le dossier", onClick: () => openShare(scope[0]) }] : [],
-  });
+  setHeader(title, `${plural(events.filter((e) => !e.me).length, "réaction", "réactions")} des invités`,
+    id ? { actions: [{ label: "Ouvrir le dossier", onClick: () => openShare(scope[0]) }] } : { tabs: shareTabs(), primary: sharePrimary });
   const chip = (k, label) => `<button class="rv-chip ${filter === k ? "on" : ""}" data-f="${k}">${label}</button>`;
   let day = "";
   c.innerHTML = `<div class="rv-filters">${chip("all", "Tout")}${chip("guests", "Invités seulement")}${chip("tags", "Pastilles")}</div>` +
