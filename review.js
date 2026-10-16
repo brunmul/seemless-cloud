@@ -205,7 +205,7 @@ function openBox(root) {
     } catch (e) { console.error(e); review.error = e.message; }
     review.ready = true;
     document.querySelectorAll(".rv-tile").forEach((t) => refreshTile(t.dataset.id));
-    if (!$("#rv").hidden) drawSide();
+    drawSide();
   })();
 }
 
@@ -248,7 +248,7 @@ function drawReview(id, entry) {
   if (guestHome) {
     const who = owner?.displayName?.split(" ")[0];
     setHeader(meta.name, [photos && plural(photos, "photo", "photos"), videos && plural(videos, "vidéo", "vidéos")].filter(Boolean).join(" · ")
-      + (items.length ? " · Ouvre une photo pour poser une pastille ou laisser un mot." : ""), {
+      + (items.length ? " · Pose une pastille ou laisse un mot sur chaque photo." : ""), {
       kicker: who ? `<span class="avatar sm">${esc(initials(who))}</span>${esc(who)} a partagé ce dossier avec toi` : "Dossier partagé avec toi",
       actions: [{ label: "Quitter", onClick: leaveGuest }],
     });
@@ -269,17 +269,23 @@ function drawReview(id, entry) {
     ${!items.length && !subs.length ? empty("Ce dossier est vide.") : ""}
     ${items.length && !visible.length ? empty("Aucun fichier avec cette pastille.") : ""}`;
   c.querySelectorAll(".folder-open").forEach((b) => (b.onclick = () => go({ name: "review", id: b.dataset.id, root: review.root })));
+  closePop();
 
   const grid = $("#rv-grid");
   const frag = document.createDocumentFragment();
   visible.forEach((f, i) => {
-    const tile = document.createElement("button");
+    const tile = document.createElement("div");
     tile.className = "rv-tile";
     tile.dataset.id = f.id;
-    tile.innerHTML = `<img alt="" loading="lazy"><span class="rv-dots"></span>
-      ${f.video ? `<span class="rv-badge">▶ ${duration(f)}</span>` : ""}<span class="rv-count" hidden></span>`;
+    tile.innerHTML = `<button class="rv-open" aria-label="Ouvrir ${esc(f.name)}"><img alt="" loading="lazy"></button><span class="rv-dots"></span>
+      ${f.video ? `<span class="rv-badge">▶ ${duration(f)}</span>` : ""}<span class="rv-count" hidden></span>
+      <div class="rv-bar">${TAGS.map((t) => `<button class="rv-mini" data-key="${t.key}" title="${t.label}" style="--c:${t.color}"></button>`).join("")}
+        <button class="rv-react" title="Pastille et commentaires" aria-label="Pastille et commentaires"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg></button></div>`;
     setThumb(tile.querySelector("img"), f, 400);
-    tile.onclick = () => { review.list = visible; openViewer(i, tile.querySelector("img")); };
+    tile.querySelector(".rv-open").onclick = () => { closePop(); review.list = visible; openViewer(i, tile.querySelector("img")); };
+    // Pastille en un clic depuis la grille ; un 2e clic sur la même la retire.
+    tile.querySelectorAll(".rv-mini").forEach((m) => (m.onclick = () => setTag(f, myTag(f.id)?.tag.key === m.dataset.key ? null : m.dataset.key)));
+    tile.querySelector(".rv-react").onclick = () => openPop(f, tile);
     frag.appendChild(tile);
   });
   grid.appendChild(frag);
@@ -334,6 +340,9 @@ function refreshTile(id) {
   if (tile) {
     tile.querySelector(".rv-dots").innerHTML = [...new Map(tagsOf(id).map((x) => [x.tag.key, x.tag])).values()]
       .map((t) => `<i style="background:${t.color}"></i>`).join("");
+    const mine = myTag(id)?.tag.key;
+    tile.querySelectorAll(".rv-mini").forEach((m) => m.classList.toggle("on", m.dataset.key === mine));
+    tile.classList.toggle("tagged-by-me", !!mine);
     const n = notesOf(id).length, count = tile.querySelector(".rv-count");
     count.textContent = n ? plural(n, "mot", "mots") : "";
     count.hidden = !n;
@@ -419,14 +428,26 @@ function drawStrip() {
   }
 }
 
-function drawSide() {
-  const f = review.list[review.index];
-  if (!f) return;
+// Panneaux de réactions ouverts : celui de la visionneuse et la bulle de la grille.
+function panels() {
+  return [!$("#rv").hidden && { root: $("#rv .rv-side"), f: review.list[review.index] },
+    !$("#rv-pop").hidden && { root: $("#rv-pop"), f: review.popFile }].filter((p) => p && p.f);
+}
+function drawSide() { panels().forEach((p) => drawPanel(p.root, p.f)); }
+// Après une pastille ou un commentaire : vignette et panneaux qui montrent ce fichier.
+function redraw(f) {
+  refreshTile(f.id);
+  panels().filter((p) => p.f === f).forEach((p) => drawPanel(p.root, p.f));
+}
+
+function drawPanel(root, f) {
+  const q = (sel) => root.querySelector(sel);
+  const input = q(".rv-input");
   const mine = myTag(f.id)?.tag.key;
-  $("#rv-tags").innerHTML = TAGS.map((t, k) =>
+  q(".rv-tags").innerHTML = TAGS.map((t, k) =>
     `<button class="rv-swatch ${mine === t.key ? "on" : ""}" data-key="${t.key}" title="${t.label} (${k + 1})" style="--c:${t.color}"></button>`).join("") +
     `<button class="rv-swatch none ${mine ? "" : "on"}" data-key="" title="Aucune pastille (0)"></button>`;
-  $("#rv-tags").querySelectorAll(".rv-swatch").forEach((b) => (b.onclick = () => setTag(f, b.dataset.key || null)));
+  q(".rv-tags").querySelectorAll(".rv-swatch").forEach((b) => (b.onclick = () => setTag(f, b.dataset.key || null)));
 
   // « Vert · posée par Léa et toi »
   const byTag = new Map();
@@ -435,21 +456,56 @@ function drawSide() {
     byTag.get(x.tag.key).who.push(x.c.author?.me ? "toi" : x.c.author?.displayName || "quelqu'un");
   }
   const list = (w) => w.length > 1 ? `${w.slice(0, -1).join(", ")} et ${w.at(-1)}` : w[0];
-  $("#rv-tagged").innerHTML = [...byTag.values()].map(({ tag, who }) =>
+  q(".rv-tagged").innerHTML = [...byTag.values()].map(({ tag, who }) =>
     `<span><i style="background:${tag.color}"></i>${esc(tag.label.replace("Pastille ", "").replace(/^./, (c) => c.toUpperCase()))} · posée par ${esc(list(who))}</span>`).join("");
 
   const notes = notesOf(f.id);
-  $("#rv-comments").innerHTML = !review.ready ? `<p class="muted">Chargement…</p>`
+  q(".rv-comments").innerHTML = !review.ready ? `<p class="muted">Chargement…</p>`
     : review.error ? `<p class="muted">Commentaires indisponibles : ${esc(review.error)}.</p>`
     : notes.length ? notes.map((c) => commentHtml(c)).join("")
     : `<p class="muted rv-empty">Pas encore de commentaire.<br>Écris le premier ci-dessous.</p>`;
-  $("#rv-comments").querySelectorAll("[data-reply]").forEach((b) => (b.onclick = () => {
+  q(".rv-comments").querySelectorAll("[data-reply]").forEach((b) => (b.onclick = () => {
     review.replyTo = notes.find((c) => c.id === b.dataset.reply);
-    $("#rv-input").placeholder = `Répondre à ${review.replyTo.author?.displayName || "ce commentaire"}…`;
-    $("#rv-input").focus();
+    input.placeholder = `Répondre à ${review.replyTo.author?.displayName || "ce commentaire"}…`;
+    input.focus();
   }));
-  $("#rv-comments").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => deleteComment(f, b.dataset.del)));
-  $("#rv-input").placeholder = "Ajouter un commentaire…";
+  q(".rv-comments").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => deleteComment(f, b.dataset.del)));
+  input.placeholder = "Ajouter un commentaire…";
+  q(".rv-form").onsubmit = (e) => sendComment(e, root, f);
+  // Entrée envoie, Maj+Entrée va à la ligne ; le champ grandit avec le texte.
+  input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) sendComment(e, root, f); };
+  input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 140) + "px"; };
+}
+
+// ---------- Bulle de réactions sur la grille ----------
+
+function openPop(f, tile) {
+  const pop = $("#rv-pop");
+  if (!pop.hidden && review.popFile === f) return closePop();
+  review.popFile = f;
+  review.replyTo = null;
+  pop.querySelector(".rv-pop-title").textContent = f.name;
+  pop.hidden = false;
+  drawPanel(pop, f);
+  document.querySelectorAll(".rv-tile.popped").forEach((t) => t.classList.remove("popped"));
+  tile.classList.add("popped");
+  // À droite de la vignette s'il y a la place, sinon à gauche (bas de l'écran sur iPhone).
+  const r = tile.getBoundingClientRect(), w = pop.offsetWidth, h = pop.offsetHeight;
+  const left = r.right + 10 + w < innerWidth ? r.right + 10 : Math.max(8, r.left - w - 10);
+  const top = Math.max(8, Math.min(innerHeight - h - 8, r.top));
+  Object.assign(pop.style, { left: left + "px", top: top + "px" });
+  setTimeout(() => document.addEventListener("pointerdown", outsidePop), 0);
+}
+function outsidePop(e) {
+  if (!e.target.closest("#rv-pop, .rv-tile.popped .rv-react, #name-ask")) closePop();
+}
+function closePop() {
+  const pop = $("#rv-pop");
+  if (!pop || pop.hidden) return;
+  pop.hidden = true;
+  review.popFile = null;
+  document.querySelectorAll(".rv-tile.popped").forEach((t) => t.classList.remove("popped"));
+  document.removeEventListener("pointerdown", outsidePop);
 }
 
 function commentHtml(c) {
@@ -484,15 +540,13 @@ async function setTag(f, key) {
       review.comments.set(f.id, [...commentsOf(f.id), asComment(comment)]);
     }
   } catch (e) { if (e.message !== "cancel") { console.error(e); toast("Impossible de poser la pastille"); } return; }
-  refreshTile(f.id);
-  if (review.list[review.index] === f) drawSide();
+  redraw(f);
 }
 
-async function sendComment(e) {
+async function sendComment(e, root, f) {
   e.preventDefault();
-  const input = $("#rv-input");
+  const input = root.querySelector(".rv-input");
   const text = input.value.trim();
-  const f = review.list[review.index];
   if (!text || !f) return;
   input.disabled = true;
   try {
@@ -506,8 +560,7 @@ async function sendComment(e) {
   } catch (err) { if (err.message !== "cancel") { console.error(err); toast("Impossible d'envoyer le commentaire"); } }
   input.disabled = false;
   input.blur(); // les raccourcis clavier (flèches, 1 à 7) remarchent tout de suite
-  refreshTile(f.id);
-  drawSide();
+  redraw(f);
 }
 
 async function deleteComment(f, id) {
@@ -516,8 +569,7 @@ async function deleteComment(f, id) {
     await box("delete", { id });
     review.comments.set(f.id, commentsOf(f.id).filter((c) => c.id !== id));
   } catch (e) { console.error(e); toast("Impossible de supprimer"); return; }
-  refreshTile(f.id);
-  drawSide();
+  redraw(f);
 }
 
 // ---------- Inviter quelqu'un (propriétaire) ----------
@@ -587,13 +639,16 @@ window.addEventListener("load", () => {
   $("#rv-close").onclick = closeViewer;
   $("#rv-prev").onclick = () => showItem(review.index - 1);
   $("#rv-next").onclick = () => showItem(review.index + 1);
-  $("#rv-form").onsubmit = sendComment;
-  // Entrée envoie, Maj+Entrée va à la ligne ; le champ grandit avec le texte.
-  $("#rv-input").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) sendComment(e); };
-  $("#rv-input").oninput = (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px"; };
+  $("#rv-pop .rv-pop-close").onclick = closePop;
+  addEventListener("resize", closePop);
+  $("#content").addEventListener("scroll", () => { if (matchMedia("(min-width: 761px)").matches) closePop(); }, { passive: true });
   $("#invite-close").onclick = () => ($("#invite").hidden = true);
   document.addEventListener("keydown", (e) => {
-    if ($("#rv").hidden) return;
+    if ($("#rv").hidden) {
+      const typing = e.target.closest?.("#rv-pop textarea");
+      if (e.key === "Escape" && !$("#rv-pop").hidden) { if (typing?.value) typing.blur(); else closePop(); }
+      return;
+    }
     const typing = e.target.closest?.("textarea, input");
     if (e.key === "Escape") {
       if (typing?.value) typing.blur(); // un texte en cours : on le garde

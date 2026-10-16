@@ -304,7 +304,7 @@ body.reading .player { z-index: 70; }
 .grid img, .rv-tile img { opacity: 0; transition: opacity .35s var(--ease); }
 .grid img.ld, .rv-tile img.ld { opacity: 1; }
 .album-card, .rv-tile, .folder-open, .year-card { transition: transform .18s var(--ease); }
-.album-card:active, .rv-tile:active, .folder-open:active, .year-card:active { transform: scale(.97); }
+.album-card:active, .rv-open:active, .folder-open:active, .year-card:active { transform: scale(.97); }
 ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
 ::view-transition-group(hero) { animation-duration: .32s; animation-timing-function: var(--ease); }
 ::view-transition-old(hero), ::view-transition-new(hero) { height: 100%; object-fit: contain; }
@@ -330,13 +330,40 @@ html.guest { --pad: 48px; }
 .content > .rv-filters:first-child { padding-top: 16px; }
 .toolbar.hero ~ .content > .rv-filters:first-child { padding-top: 0; }
 .rv-grid { gap: 6px; margin-inline: 0; }
-.rv-tile { position: relative; padding: 0; border-radius: 6px; aspect-ratio: 1; overflow: hidden; background: var(--panel); }
-.rv-tile:hover { background: var(--panel); }
+.rv-tile { position: relative; border-radius: 6px; aspect-ratio: 1; overflow: hidden; background: var(--panel); }
+.rv-open { display: block; width: 100%; height: 100%; padding: 0; border-radius: 0; background: transparent; }
+.rv-open:hover { background: transparent; }
 .rv-tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .35s var(--ease), transform .4s var(--ease); }
 .rv-tile:hover img { transform: scale(1.03); }
+.rv-tile.popped { outline: 3px solid var(--accent); outline-offset: -3px; }
+/* Barre de réactions au survol : pastilles en un clic et bulle de commentaires. */
+.rv-bar { position: absolute; left: 6px; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 4px; padding: 4px 4px 4px 7px; border-radius: 99px;
+  background: rgba(28,28,30,.72); backdrop-filter: blur(12px); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s var(--ease); pointer-events: none; }
+.rv-tile:hover .rv-bar, .rv-tile:focus-within .rv-bar, .rv-tile.popped .rv-bar { opacity: 1; transform: none; pointer-events: auto; }
+.rv-tile:hover .rv-count { opacity: 0; }
+.rv-mini { width: 14px; height: 14px; border-radius: 50%; padding: 0; background: var(--c); flex: none; transition: transform .12s var(--ease); }
+.rv-mini:hover { background: var(--c); transform: scale(1.25); }
+.rv-mini.on { box-shadow: 0 0 0 2px rgba(28,28,30,.9), 0 0 0 3.5px #fff; }
+.rv-react { margin-left: auto; width: 26px; height: 26px; padding: 0; border-radius: 50%; background: rgba(255,255,255,.16); color: #fff; display: grid; place-items: center; flex: none; }
+.rv-react:hover { background: rgba(255,255,255,.3); }
+.rv-react svg { width: 14px; height: 14px; }
+/* Écran tactile : pas de survol, la bulle reste visible et ouvre tout. */
+@media (hover: none) {
+  .rv-bar { opacity: 1; transform: none; pointer-events: auto; left: auto; background: transparent; backdrop-filter: none; padding: 0; }
+  .rv-mini { display: none; }
+  .rv-react { background: rgba(28,28,30,.6); width: 30px; height: 30px; }
+}
+
+.rv-pop { position: fixed; z-index: 28; width: 340px; max-height: min(560px, calc(100dvh - 16px)); display: flex; flex-direction: column; background: #1c1c1e; color: #f5f5f7;
+  border-radius: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.35), 0 0 0 .5px rgba(255,255,255,.1); overflow: hidden; animation: pop .16s var(--ease); }
+.rv-pop-head { display: flex; align-items: center; gap: 8px; padding: 12px 10px 0 16px; }
+.rv-pop-title { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rv-pop .rv-tagbox { padding: 12px 16px; }
+.rv-pop .rv-comments { padding: 12px 16px; min-height: 60px; }
+.rv-pop .rv-form { margin: 0 12px 12px; }
 .rv-dots { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
 .rv-dots i { width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 2px #fff; }
-.rv-badge { position: absolute; bottom: 7px; right: 8px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.rv-badge { position: absolute; top: 7px; left: 8px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .rv-count { position: absolute; left: 8px; bottom: 8px; font-size: 11px; font-weight: 600; color: #1d1d1f; background: rgba(255,255,255,.9); border-radius: 10px; padding: 2px 8px; }
 
 .rv { position: fixed; inset: 0; z-index: 26; display: grid; grid-template-columns: minmax(0, 1fr) 360px; background: #0b0b0c; color: #f5f5f7; animation: rv-in .2s var(--ease); }
@@ -350,9 +377,12 @@ html.guest { --pad: 48px; }
 .rv-round:hover { background: rgba(255,255,255,.2); }
 .rv-round.ghost { background: transparent; }
 .rv-round.ghost:hover { background: rgba(255,255,255,.12); }
-.rv-body { position: relative; min-height: 0; display: grid; }
-.rv-media { width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; padding: 8px 72px; }
-.rv-media img, .rv-media video { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 4px; }
+.rv-body { position: relative; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+/* Pistes explicites : les max-height en % se rapportent alors à la zone visible,
+   une vidéo verticale ne déborde plus et garde ses commandes à l'écran. */
+.rv-media { width: 100%; height: 100%; min-height: 0; min-width: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); place-items: center; padding: 8px 72px; overflow: hidden; }
+.rv-media img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 4px; }
+.rv-media video { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
 .rv-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; z-index: 1; }
 .rv-nav.prev { left: 16px; } .rv-nav.next { right: 16px; }
 .rv-strip { display: flex; justify-content: safe center; align-items: center; gap: 4px; height: 72px; padding-bottom: 8px; overflow: hidden; }
@@ -503,4 +533,5 @@ html.guest { --pad: 48px; }
   .rv-comments { padding: 12px 16px; }
   .rv-form { margin: 8px 12px calc(12px + env(safe-area-inset-bottom)); }
   .menu { min-width: 200px; }
+  .rv-pop { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-height: 75dvh; border-radius: 16px 16px 0 0; padding-bottom: env(safe-area-inset-bottom); }
 }

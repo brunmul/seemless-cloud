@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#1e1e1e">
-  <link rel="stylesheet" href="styles.css?v=18">
+  <link rel="stylesheet" href="styles.css?v=19">
   <script src="config.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -152,10 +152,21 @@
       </div>
       <div id="rv-comments" class="rv-comments"></div>
       <form id="rv-form" class="rv-form">
-        <textarea id="rv-input" rows="1" placeholder="Ajouter un commentaire…" aria-label="Ajouter un commentaire"></textarea>
+        <textarea id="rv-input" class="rv-input" rows="1" placeholder="Ajouter un commentaire…" aria-label="Ajouter un commentaire"></textarea>
         <button class="rv-send" aria-label="Envoyer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
       </form>
     </aside>
+  </div>
+
+  <!-- Pastille et commentaires depuis la grille, sans ouvrir la photo -->
+  <div id="rv-pop" class="rv-pop" role="dialog" aria-label="Réactions" hidden>
+    <div class="rv-pop-head"><b class="rv-pop-title"></b><button class="rv-pop-close rv-round ghost" aria-label="Fermer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button></div>
+    <div class="rv-tagbox"><div class="rv-tags"></div><div class="rv-tagged"></div></div>
+    <div class="rv-comments"></div>
+    <form class="rv-form">
+      <textarea class="rv-input" rows="1" placeholder="Ajouter un commentaire…" aria-label="Ajouter un commentaire"></textarea>
+      <button class="rv-send" aria-label="Envoyer"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 13V3M3.5 7.5L8 3l4.5 4.5"/></svg></button>
+    </form>
   </div>
 
   <!-- Inviter quelqu'un sur un dossier -->
@@ -223,11 +234,11 @@
     <audio id="audio" controls preload="none"></audio>
   </footer>
 
-  <script src="app.js?v=18"></script>
-  <script src="folders.js?v=18"></script>
-  <script src="sources.js?v=18"></script>
-  <script src="books.js?v=18"></script>
-  <script src="review.js?v=18"></script>
-  <script src="shares.js?v=18"></script>
+  <script src="app.js?v=19"></script>
+  <script src="folders.js?v=19"></script>
+  <script src="sources.js?v=19"></script>
+  <script src="books.js?v=19"></script>
+  <script src="review.js?v=19"></script>
+  <script src="shares.js?v=19"></script>
 </body>
 </html>
